@@ -28,3 +28,7 @@ local browser. Keep this URL pointed at TEST only.
 
 For GitHub Pages TEST deployment, use Deploy from a branch with branch `test`
 and folder `/ (root)`.
+
+Product list/search/detail UI uses the authenticated Product Read APIs. Before
+runtime testing it from GitHub Pages, deploy a new TEST Apps Script Web App
+version that includes the latest Product routing in `backend/Code.gs`.
