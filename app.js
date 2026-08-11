@@ -19,6 +19,7 @@ const config = typeof STOCK_ADMIN_CONFIG === "undefined"
   : STOCK_ADMIN_CONFIG;
 const SESSION_TOKEN_KEY = "stock-admin-test-session-token";
 const PRODUCT_PAGE_SIZE = 20;
+const OWNER_ROLE = "OWNER";
 
 let currentUser = null;
 let activeViewName = "home";
@@ -36,6 +37,14 @@ const productState = {
   detailLoading: false,
   detailError: "",
   requestId: 0,
+};
+const productCreateState = {
+  mode: "list",
+  form: createEmptyProductForm(),
+  errors: [],
+  submitting: false,
+  message: "",
+  messageType: "info",
 };
 
 const views = {
@@ -351,6 +360,28 @@ function renderProductView() {
   detail.textContent = "ดูสินค้าและ SKU จาก TEST Backend แบบอ่านอย่างเดียว";
   intro.append(title, detail);
 
+  const actions = document.createElement("div");
+  actions.className = "product-toolbar-actions";
+  if (canUseCreateProductUi()) {
+    const createButton = document.createElement("button");
+    createButton.className = "create-product-entry-button";
+    createButton.type = "button";
+    createButton.textContent = productCreateState.mode === "list" ? "+ เพิ่มสินค้า" : "กลับรายการ";
+    createButton.addEventListener("click", () => {
+      if (productCreateState.submitting) {
+        return;
+      }
+
+      if (productCreateState.mode === "list") {
+        productCreateState.message = "";
+      }
+      productCreateState.mode = productCreateState.mode === "list" ? "form" : "list";
+      productCreateState.errors = [];
+      rerenderProductView();
+    });
+    actions.append(createButton);
+  }
+
   const searchLabel = document.createElement("label");
   searchLabel.className = "product-search-label";
   const searchText = document.createElement("span");
@@ -369,7 +400,18 @@ function renderProductView() {
   });
   searchLabel.append(searchText, searchInput);
 
-  toolbar.append(intro, searchLabel);
+  toolbar.append(intro);
+  if (actions.childNodes.length > 0) {
+    toolbar.append(actions);
+  }
+
+  if (productCreateState.mode !== "list") {
+    productDom = null;
+    section.append(toolbar, renderCreateProductFlow());
+    return section;
+  }
+
+  toolbar.append(searchLabel);
 
   const status = document.createElement("div");
   status.className = "product-status";
@@ -492,6 +534,480 @@ async function loadProductDetail(productId) {
   }
 }
 
+function renderCreateProductFlow() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "create-product-flow";
+
+  if (!canUseCreateProductUi()) {
+    const denied = document.createElement("section");
+    denied.className = "card product-error";
+    denied.textContent = "เมนูเพิ่มสินค้าเปิดให้ OWNER ใช้งานใน Phase นี้เท่านั้น";
+    wrapper.append(denied);
+    return wrapper;
+  }
+
+  if (productCreateState.message) {
+    const message = document.createElement("p");
+    message.className = "product-status create-product-message";
+    message.dataset.type = productCreateState.messageType;
+    message.textContent = productCreateState.message;
+    wrapper.append(message);
+  }
+
+  if (productCreateState.errors.length > 0) {
+    const errorBox = document.createElement("section");
+    errorBox.className = "card create-error-list";
+    const title = document.createElement("h2");
+    title.textContent = "ตรวจสอบข้อมูล";
+    const list = document.createElement("ul");
+    productCreateState.errors.forEach((error) => {
+      const item = document.createElement("li");
+      item.textContent = error;
+      list.append(item);
+    });
+    errorBox.append(title, list);
+    wrapper.append(errorBox);
+  }
+
+  wrapper.append(productCreateState.mode === "review"
+    ? renderCreateProductReview()
+    : renderCreateProductForm());
+  return wrapper;
+}
+
+function renderCreateProductForm() {
+  const form = document.createElement("form");
+  form.className = "card create-product-form";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    openCreateProductReview();
+  });
+
+  const title = document.createElement("h2");
+  title.textContent = "เพิ่มสินค้า";
+  const note = document.createElement("p");
+  note.className = "placeholder-text";
+  note.textContent = "ระบบจะสร้าง Stock เริ่มต้นเป็น 0 อัตโนมัติ และไม่รับ Opening Balance ในขั้นตอนนี้";
+  form.append(title, note);
+
+  form.append(
+    createTextField("product_name", "ชื่อสินค้า", productCreateState.form.product_name, true, (value) => {
+      productCreateState.form.product_name = value;
+    }),
+    createTextField("category", "หมวดหมู่", productCreateState.form.category, false, (value) => {
+      productCreateState.form.category = value;
+    }),
+    createTextAreaField("description", "รายละเอียด", productCreateState.form.description, (value) => {
+      productCreateState.form.description = value;
+    }),
+  );
+
+  const skuHeader = document.createElement("div");
+  skuHeader.className = "create-section-header";
+  const skuTitle = document.createElement("h3");
+  skuTitle.textContent = "SKU";
+  const addSku = document.createElement("button");
+  addSku.type = "button";
+  addSku.className = "secondary-action-button";
+  addSku.textContent = "+ เพิ่ม SKU";
+  addSku.addEventListener("click", () => {
+    productCreateState.form.skus.push(createEmptySkuForm());
+    productCreateState.errors = [];
+    rerenderProductView();
+  });
+  skuHeader.append(skuTitle, addSku);
+  form.append(skuHeader);
+
+  productCreateState.form.skus.forEach((sku, index) => {
+    form.append(renderSkuFormCard(sku, index));
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "create-form-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary-action-button";
+  cancel.textContent = "ยกเลิก";
+  cancel.addEventListener("click", () => {
+    resetCreateProductState();
+    rerenderProductView();
+  });
+  const review = document.createElement("button");
+  review.type = "submit";
+  review.className = "primary-action-button";
+  review.textContent = "ตรวจสอบก่อนบันทึก";
+  actions.append(cancel, review);
+  form.append(actions);
+
+  return form;
+}
+
+function renderSkuFormCard(sku, index) {
+  const card = document.createElement("section");
+  card.className = "sku-form-card";
+
+  const header = document.createElement("div");
+  header.className = "sku-form-header";
+  const title = document.createElement("h3");
+  title.textContent = `SKU #${index + 1}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "remove-sku-button";
+  remove.textContent = "ลบ";
+  remove.disabled = productCreateState.form.skus.length <= 1;
+  remove.addEventListener("click", () => {
+    if (productCreateState.form.skus.length <= 1) {
+      return;
+    }
+    productCreateState.form.skus.splice(index, 1);
+    productCreateState.errors = [];
+    rerenderProductView();
+  });
+  header.append(title, remove);
+  card.append(header);
+
+  card.append(
+    createTextField(`sku_code_${index}`, "รหัส SKU", sku.sku_code, true, (value) => {
+      sku.sku_code = value;
+    }),
+    createTextField(`model_${index}`, "รุ่น", sku.model, false, (value) => {
+      sku.model = value;
+    }),
+    createTextField(`color_${index}`, "สี", sku.color, false, (value) => {
+      sku.color = value;
+    }),
+    createTextField(`size_${index}`, "ขนาด", sku.size, false, (value) => {
+      sku.size = value;
+    }),
+    createNumberField(`cost_price_${index}`, "ต้นทุน", sku.cost_price, true, "0.01", (value) => {
+      sku.cost_price = value;
+    }),
+    createNumberField(`sale_price_${index}`, "ราคาขาย", sku.sale_price, true, "0.01", (value) => {
+      sku.sale_price = value;
+    }),
+    createNumberField(
+      `sourceable_qty_estimate_${index}`,
+      "หาเพิ่มได้ประมาณ",
+      sku.sourceable_qty_estimate,
+      false,
+      "1",
+      (value) => {
+        sku.sourceable_qty_estimate = value;
+      },
+    ),
+  );
+
+  const stockNote = document.createElement("p");
+  stockNote.className = "placeholder-text";
+  stockNote.textContent = "Stock เริ่มต้น = 0";
+  card.append(stockNote);
+  return card;
+}
+
+function renderCreateProductReview() {
+  const review = document.createElement("section");
+  review.className = "card create-review-card";
+
+  const title = document.createElement("h2");
+  title.textContent = "ยืนยันการเพิ่มสินค้า";
+  const note = document.createElement("p");
+  note.className = "placeholder-text";
+  note.textContent = "กรุณาตรวจสอบก่อนบันทึก Stock เริ่มต้นจะเป็น 0 และแก้ไข Stock ไม่ได้ในขั้นตอนนี้";
+  review.append(title, note);
+
+  const productSummary = document.createElement("div");
+  productSummary.className = "review-summary";
+  productSummary.append(
+    createReviewLine("ชื่อสินค้า", productCreateState.form.product_name),
+    createReviewLine("หมวดหมู่", productCreateState.form.category || "-"),
+    createReviewLine("จำนวน SKU", productCreateState.form.skus.length),
+  );
+  review.append(productSummary);
+
+  const skuList = document.createElement("div");
+  skuList.className = "sku-list";
+  productCreateState.form.skus.forEach((sku, index) => {
+    const card = document.createElement("article");
+    card.className = "sku-summary";
+    card.append(
+      createReviewLine(`SKU #${index + 1}`, normalizeSkuCodeForUi(sku.sku_code)),
+      createReviewLine("รุ่น / สี / ขนาด", [sku.model, sku.color, sku.size].filter(Boolean).join(" / ") || "-"),
+      createReviewLine("ต้นทุน", formatBaht(sku.cost_price)),
+      createReviewLine("ราคาขาย", formatBaht(sku.sale_price)),
+      createReviewLine("หาเพิ่มได้ประมาณ", formatNumber(parseSourceableForPayload(sku.sourceable_qty_estimate))),
+      createReviewLine("Stock เริ่มต้น", "0"),
+    );
+    skuList.append(card);
+  });
+  review.append(skuList);
+
+  const actions = document.createElement("div");
+  actions.className = "create-form-actions";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "secondary-action-button";
+  back.textContent = "กลับไปแก้ไข";
+  back.disabled = productCreateState.submitting;
+  back.addEventListener("click", () => {
+    productCreateState.mode = "form";
+    productCreateState.errors = [];
+    rerenderProductView();
+  });
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "primary-action-button";
+  submit.textContent = productCreateState.submitting ? "กำลังบันทึก..." : "บันทึกสินค้า";
+  submit.disabled = productCreateState.submitting;
+  submit.addEventListener("click", submitCreateProduct);
+  actions.append(back, submit);
+  review.append(actions);
+
+  return review;
+}
+
+function createTextField(name, label, value, required, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "create-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "text";
+  input.value = value || "";
+  input.required = !!required;
+  input.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, input);
+  return wrapper;
+}
+
+function createTextAreaField(name, label, value, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "create-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const textarea = document.createElement("textarea");
+  textarea.name = name;
+  textarea.value = value || "";
+  textarea.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, textarea);
+  return wrapper;
+}
+
+function createNumberField(name, label, value, required, step, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "create-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "number";
+  input.min = "0";
+  input.step = step;
+  input.value = value || "";
+  input.required = !!required;
+  input.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, input);
+  return wrapper;
+}
+
+function openCreateProductReview() {
+  productCreateState.errors = validateCreateProductForm();
+  productCreateState.message = "";
+  if (productCreateState.errors.length > 0) {
+    rerenderProductView();
+    return;
+  }
+
+  productCreateState.mode = "review";
+  rerenderProductView();
+}
+
+async function submitCreateProduct() {
+  if (productCreateState.submitting) {
+    return;
+  }
+
+  productCreateState.errors = validateCreateProductForm();
+  productCreateState.message = "";
+  if (productCreateState.errors.length > 0) {
+    productCreateState.mode = "form";
+    rerenderProductView();
+    return;
+  }
+
+  productCreateState.submitting = true;
+  rerenderProductView();
+
+  try {
+    const response = await callAuthApi("createProduct", {
+      sessionToken: requireSessionToken(),
+      product: createProductPayloadFromForm(),
+    });
+    requireSuccess(response);
+    resetCreateProductState();
+    productCreateState.message = "เพิ่มสินค้าสำเร็จ";
+    productCreateState.messageType = "info";
+    productState.initialized = false;
+    await loadProducts({ reset: true });
+    productCreateState.message = "เพิ่มสินค้าสำเร็จ";
+    rerenderProductView();
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+    productCreateState.submitting = false;
+    productCreateState.errors = [toCreateProductErrorMessage(error)];
+    productCreateState.mode = "form";
+    rerenderProductView();
+  }
+}
+
+function validateCreateProductForm() {
+  const errors = [];
+  const form = productCreateState.form;
+  if (!String(form.product_name || "").trim()) {
+    errors.push("กรุณากรอกชื่อสินค้า");
+  }
+
+  if (!Array.isArray(form.skus) || form.skus.length < 1) {
+    errors.push("ต้องมี SKU อย่างน้อย 1 รายการ");
+  }
+
+  const seenSkuCodes = {};
+  form.skus.forEach((sku, index) => {
+    const label = `SKU #${index + 1}`;
+    const skuCode = normalizeSkuCodeForUi(sku.sku_code);
+    if (!skuCode) {
+      errors.push(`${label}: กรุณากรอกรหัส SKU`);
+    } else if (seenSkuCodes[skuCode]) {
+      errors.push(`${label}: รหัส SKU ซ้ำในฟอร์ม`);
+    }
+    seenSkuCodes[skuCode] = true;
+
+    if (!isNonNegativeNumberInput(sku.cost_price)) {
+      errors.push(`${label}: ต้นทุนต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป`);
+    }
+
+    if (!isNonNegativeNumberInput(sku.sale_price)) {
+      errors.push(`${label}: ราคาขายต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป`);
+    }
+
+    if (!isNonNegativeIntegerInput(sku.sourceable_qty_estimate || "0")) {
+      errors.push(`${label}: หาเพิ่มได้ประมาณต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป`);
+    }
+  });
+
+  return errors;
+}
+
+function createProductPayloadFromForm() {
+  return {
+    product_name: String(productCreateState.form.product_name || "").trim(),
+    category: String(productCreateState.form.category || "").trim(),
+    description: String(productCreateState.form.description || "").trim(),
+    skus: productCreateState.form.skus.map((sku) => ({
+      sku_code: normalizeSkuCodeForUi(sku.sku_code),
+      model: String(sku.model || "").trim(),
+      color: String(sku.color || "").trim(),
+      size: String(sku.size || "").trim(),
+      cost_price: Number(sku.cost_price),
+      sale_price: Number(sku.sale_price),
+      sourceable_qty_estimate: parseSourceableForPayload(sku.sourceable_qty_estimate),
+    })),
+  };
+}
+
+function createReviewLine(label, value) {
+  const row = document.createElement("div");
+  row.className = "review-line";
+  const key = document.createElement("span");
+  key.textContent = label;
+  const val = document.createElement("strong");
+  val.textContent = String(value || "-");
+  row.append(key, val);
+  return row;
+}
+
+function createEmptyProductForm() {
+  return {
+    product_name: "",
+    category: "",
+    description: "",
+    skus: [createEmptySkuForm()],
+  };
+}
+
+function createEmptySkuForm() {
+  return {
+    sku_code: "",
+    model: "",
+    color: "",
+    size: "",
+    cost_price: "",
+    sale_price: "",
+    sourceable_qty_estimate: "",
+  };
+}
+
+function resetCreateProductState() {
+  productCreateState.mode = "list";
+  productCreateState.form = createEmptyProductForm();
+  productCreateState.errors = [];
+  productCreateState.submitting = false;
+  productCreateState.message = "";
+  productCreateState.messageType = "info";
+}
+
+function rerenderProductView() {
+  if (activeViewName === "products" && currentUser) {
+    setView("products");
+  }
+}
+
+function canUseCreateProductUi() {
+  return !!currentUser && currentUser.role === OWNER_ROLE;
+}
+
+function normalizeSkuCodeForUi(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function isNonNegativeNumberInput(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return false;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
+}
+
+function isNonNegativeIntegerInput(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return true;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 && Math.floor(parsed) === parsed;
+}
+
+function parseSourceableForPayload(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return 0;
+  }
+  return Number(value);
+}
+
+function toCreateProductErrorMessage(error) {
+  const code = error && (error.code || error.message);
+  if (code === "PERMISSION_DENIED") {
+    return "บัญชีนี้ไม่มีสิทธิ์เพิ่มสินค้า";
+  }
+  if (code === "VALIDATION_ERROR") {
+    return "ข้อมูลสินค้าไม่ถูกต้อง กรุณาตรวจสอบรหัส SKU ราคา และข้อมูลที่จำเป็น";
+  }
+  return toThaiErrorMessage(error);
+}
+
 function updateProductDom() {
   if (!productDom || activeViewName !== "products") {
     return;
@@ -505,7 +1021,10 @@ function updateProductDom() {
     productDom.list.append(createProductCard(product));
   });
 
-  if (productState.loading && productState.items.length === 0) {
+  if (productCreateState.message && !productState.loading && !productState.error) {
+    productDom.status.textContent = productCreateState.message;
+    productDom.status.dataset.type = productCreateState.messageType;
+  } else if (productState.loading && productState.items.length === 0) {
     productDom.status.textContent = "กำลังโหลดรายการสินค้า...";
   } else if (productState.error) {
     productDom.status.textContent = productState.error;
