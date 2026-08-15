@@ -20,10 +20,11 @@ const config = typeof STOCK_ADMIN_CONFIG === "undefined"
 const SESSION_TOKEN_KEY = "stock-admin-test-session-token";
 const PRODUCT_PAGE_SIZE = 20;
 const STOCK_PAGE_SIZE = 20;
+const SHIPMENT_PAGE_SIZE = 20;
 const OWNER_ROLE = "OWNER";
 const ADMIN_ROLE = "ADMIN";
 const ADJUST_STOCK_PERMISSION = "ADJUST_STOCK";
-const STOCK_TEST_UI_BUILD = "3G-2F";
+const CONFIRM_SHIPMENT_PERMISSION = "CONFIRM_SHIPMENT";
 
 let currentUser = null;
 let activeViewName = "home";
@@ -31,6 +32,7 @@ let productSearchTimer = null;
 let productDom = null;
 let stockSearchTimer = null;
 let stockDom = null;
+let shipmentDom = null;
 const productState = {
   initialized: false,
   query: "",
@@ -65,9 +67,35 @@ const stockState = {
   requestId: 0,
   historyRequestId: 0,
 };
+const shipmentState = {
+  initialized: false,
+  page: 1,
+  pageSize: SHIPMENT_PAGE_SIZE,
+  hasMore: false,
+  loading: false,
+  error: "",
+  items: [],
+  detail: null,
+  detailLoading: false,
+  detailError: "",
+  detailTransition: "",
+  actionSubmitting: "",
+  actionError: "",
+  listScrollTop: 0,
+  requestId: 0,
+  detailRequestId: 0,
+};
 const productCreateState = {
   mode: "list",
   form: createEmptyProductForm(),
+  errors: [],
+  submitting: false,
+  message: "",
+  messageType: "info",
+};
+const shipmentCreateState = {
+  mode: "list",
+  form: createEmptyShipmentForm(),
   errors: [],
   submitting: false,
   message: "",
@@ -97,6 +125,7 @@ const views = {
   },
 };
 
+views.orders.render = renderShipmentView;
 views.stock.render = renderStockView;
 
 loginForm.addEventListener("submit", async (event) => {
@@ -206,6 +235,10 @@ function setView(viewName) {
     stockDom = null;
   }
 
+  if (activeViewName !== "orders") {
+    shipmentDom = null;
+  }
+
   contentArea.innerHTML = "";
   contentArea.append(view.render());
 }
@@ -253,7 +286,6 @@ function requireSuccess(response) {
 
   const error = new Error(response && response.error ? response.error.code : "BACKEND_ERROR");
   error.code = response && response.error ? response.error.code : "BACKEND_ERROR";
-  error.backendMessage = response && response.error ? String(response.error.message || "") : "";
   throw error;
 }
 
@@ -1324,6 +1356,943 @@ function appendUniqueProducts(existingItems, nextItems) {
   return merged;
 }
 
+function renderShipmentView() {
+  const section = document.createElement("section");
+  section.className = "product-view shipment-view";
+
+  const toolbar = document.createElement("section");
+  toolbar.className = "product-toolbar";
+
+  const intro = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = "ใบสั่งของ";
+  const detail = document.createElement("p");
+  detail.className = "placeholder-text";
+  detail.textContent = "สร้างและติดตาม Shipment จาก TEST Backend โดยยังไม่ตัด Stock";
+  intro.append(title, detail);
+
+  const actions = document.createElement("div");
+  actions.className = "product-toolbar-actions";
+  if (canUseShipmentMutationUi()) {
+    const createButton = document.createElement("button");
+    createButton.className = "create-product-entry-button";
+    createButton.type = "button";
+    createButton.textContent = shipmentCreateState.mode === "list" ? "+ สร้าง Shipment" : "กลับรายการ";
+    createButton.disabled = shipmentCreateState.submitting || !!shipmentState.actionSubmitting;
+    createButton.addEventListener("click", () => {
+      if (shipmentCreateState.submitting || shipmentState.actionSubmitting) {
+        return;
+      }
+      shipmentCreateState.mode = shipmentCreateState.mode === "list" ? "form" : "list";
+      shipmentCreateState.errors = [];
+      shipmentCreateState.message = "";
+      rerenderShipmentView();
+    });
+    actions.append(createButton);
+  }
+
+  toolbar.append(intro);
+  if (actions.childNodes.length > 0) {
+    toolbar.append(actions);
+  }
+
+  if (shipmentCreateState.mode !== "list") {
+    shipmentDom = null;
+    section.append(toolbar, renderCreateShipmentFlow());
+    return section;
+  }
+
+  if (shipmentState.detail) {
+    shipmentDom = null;
+    section.append(renderShipmentDetailView());
+    scheduleShipmentDetailTopScroll();
+    return section;
+  }
+
+  const status = document.createElement("div");
+  status.className = "product-status";
+  status.setAttribute("aria-live", "polite");
+
+  const list = document.createElement("div");
+  list.className = "product-list";
+
+  const loadMoreButton = document.createElement("button");
+  loadMoreButton.className = "load-more-button";
+  loadMoreButton.type = "button";
+  loadMoreButton.textContent = "โหลดเพิ่มเติม";
+  loadMoreButton.addEventListener("click", () => {
+    if (shipmentState.loading || !shipmentState.hasMore) {
+      return;
+    }
+    shipmentState.page += 1;
+    loadShipments({ reset: false });
+  });
+
+  shipmentDom = {
+    status,
+    list,
+    loadMoreButton,
+  };
+
+  section.append(toolbar, status, list, loadMoreButton);
+  updateShipmentDom();
+
+  if (!shipmentState.initialized) {
+    queueMicrotask(() => loadShipments({ reset: true }));
+  }
+
+  return section;
+}
+
+async function loadShipments(options) {
+  const reset = !!(options && options.reset);
+  const requestId = shipmentState.requestId + 1;
+  shipmentState.requestId = requestId;
+
+  if (reset) {
+    shipmentState.page = 1;
+    shipmentState.items = [];
+    shipmentState.hasMore = false;
+    shipmentState.detail = null;
+    shipmentState.detailError = "";
+    shipmentState.actionError = "";
+  }
+
+  shipmentState.loading = true;
+  shipmentState.error = "";
+  shipmentState.initialized = true;
+  updateShipmentDom();
+
+  try {
+    const response = await callAuthApi("listShipments", {
+      sessionToken: requireSessionToken(),
+      page: shipmentState.page,
+      pageSize: shipmentState.pageSize,
+    });
+    const data = requireSuccess(response);
+
+    if (requestId !== shipmentState.requestId) {
+      return;
+    }
+
+    const nextItems = Array.isArray(data.items) ? data.items : [];
+    shipmentState.items = reset ? nextItems : appendUniqueShipments(shipmentState.items, nextItems);
+    shipmentState.hasMore = !!data.hasMore;
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+
+    if (!reset && shipmentState.page > 1) {
+      shipmentState.page -= 1;
+    }
+    shipmentState.error = toShipmentErrorMessage(error);
+  } finally {
+    if (requestId === shipmentState.requestId) {
+      shipmentState.loading = false;
+      updateShipmentDom();
+    }
+  }
+}
+
+function updateShipmentDom() {
+  if (!shipmentDom || activeViewName !== "orders") {
+    return;
+  }
+
+  clearElement(shipmentDom.list);
+  shipmentState.items.forEach((shipment) => {
+    shipmentDom.list.append(createShipmentCard(shipment));
+  });
+
+  if (shipmentCreateState.message && !shipmentState.loading && !shipmentState.error) {
+    shipmentDom.status.textContent = shipmentCreateState.message;
+    shipmentDom.status.dataset.type = shipmentCreateState.messageType || "info";
+  } else if (shipmentState.loading && shipmentState.items.length === 0) {
+    shipmentDom.status.textContent = "กำลังโหลด Shipment...";
+    shipmentDom.status.dataset.type = "info";
+  } else if (shipmentState.error) {
+    shipmentDom.status.textContent = shipmentState.error;
+    shipmentDom.status.dataset.type = "error";
+  } else if (!shipmentState.loading && shipmentState.items.length === 0) {
+    shipmentDom.status.textContent = "ยังไม่มี Shipment";
+    shipmentDom.status.dataset.type = "info";
+  } else if (shipmentState.loading) {
+    shipmentDom.status.textContent = "กำลังโหลดเพิ่มเติม...";
+    shipmentDom.status.dataset.type = "info";
+  } else {
+    shipmentDom.status.textContent = "";
+    shipmentDom.status.dataset.type = "info";
+  }
+
+  shipmentDom.loadMoreButton.hidden = !shipmentState.hasMore;
+  shipmentDom.loadMoreButton.disabled = shipmentState.loading;
+}
+
+function createShipmentCard(shipment) {
+  const article = document.createElement("article");
+  article.className = "card product-card shipment-card";
+
+  const button = document.createElement("button");
+  button.className = "product-card-button";
+  button.type = "button";
+  button.addEventListener("click", () => openShipmentDetail(shipment));
+
+  const header = document.createElement("div");
+  header.className = "product-card-header";
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = shipment.reference || "Shipment ไม่มีเลขอ้างอิง";
+  const meta = document.createElement("p");
+  meta.className = "placeholder-text";
+  meta.textContent = formatDateTime(shipment.createdAt) || "-";
+  titleWrap.append(title, meta);
+
+  const status = document.createElement("span");
+  status.className = "status-pill";
+  status.textContent = shipmentStatusLabel(shipment.status);
+  header.append(titleWrap, status);
+
+  const summary = document.createElement("div");
+  summary.className = "product-meta-grid";
+  summary.append(
+    createMetric("รายการ", shipment.itemCount || 0),
+    createMetric("สถานะ", shipmentStatusLabel(shipment.status)),
+  );
+
+  const lifecycle = document.createElement("p");
+  lifecycle.className = "placeholder-text";
+  lifecycle.textContent = [
+    shipment.confirmedAt ? `ยืนยัน ${formatDateTime(shipment.confirmedAt)}` : "",
+    shipment.cancelledAt ? `ยกเลิก ${formatDateTime(shipment.cancelledAt)}` : "",
+  ].filter(Boolean).join(" · ") || "ยังไม่ตัด Stock";
+
+  button.append(header, summary, lifecycle);
+  article.append(button);
+  return article;
+}
+
+async function openShipmentDetail(shipment) {
+  shipmentState.listScrollTop = getProductScrollTop();
+  shipmentState.detail = {
+    shipmentId: shipment.shipmentId,
+    reference: shipment.reference,
+    status: shipment.status,
+    itemCount: shipment.itemCount,
+    createdAt: shipment.createdAt,
+    confirmedAt: shipment.confirmedAt,
+    cancelledAt: shipment.cancelledAt,
+    items: [],
+  };
+  shipmentState.detailLoading = true;
+  shipmentState.detailError = "";
+  shipmentState.actionError = "";
+  shipmentState.detailTransition = "enter";
+  const requestId = shipmentState.detailRequestId + 1;
+  shipmentState.detailRequestId = requestId;
+  rerenderShipmentView();
+
+  try {
+    const response = await callAuthApi("getShipmentDetail", {
+      sessionToken: requireSessionToken(),
+      shipmentId: shipment.shipmentId,
+    });
+    const data = requireSuccess(response);
+    if (requestId !== shipmentState.detailRequestId) {
+      return;
+    }
+    shipmentState.detail = data;
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+    shipmentState.detailError = toShipmentErrorMessage(error);
+  } finally {
+    if (requestId === shipmentState.detailRequestId) {
+      shipmentState.detailLoading = false;
+      rerenderShipmentView();
+    }
+  }
+}
+
+function renderShipmentDetailView() {
+  const view = document.createElement("section");
+  view.className = "product-detail-view shipment-detail-view";
+  if (shipmentState.detailTransition === "exit") {
+    view.classList.add("is-exiting");
+  }
+
+  const shipment = shipmentState.detail;
+  const card = document.createElement("section");
+  card.className = "card product-detail-card";
+
+  const header = document.createElement("div");
+  header.className = "product-detail-header";
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = shipment.reference || "Shipment ไม่มีเลขอ้างอิง";
+  const meta = document.createElement("p");
+  meta.className = "placeholder-text";
+  meta.textContent = shipmentStatusLabel(shipment.status);
+  titleWrap.append(title, meta);
+
+  const close = document.createElement("button");
+  close.className = "detail-close-button";
+  close.type = "button";
+  close.textContent = "กลับ";
+  close.disabled = shipmentState.detailTransition === "exit" ||
+    shipmentState.detailLoading ||
+    !!shipmentState.actionSubmitting;
+  close.addEventListener("click", closeShipmentDetail);
+  header.append(titleWrap, close);
+  card.append(header);
+
+  if (shipmentState.detailLoading) {
+    const loading = document.createElement("p");
+    loading.className = "product-status";
+    loading.textContent = "กำลังโหลดรายละเอียด Shipment...";
+    card.append(loading);
+  }
+
+  if (shipmentState.detailError) {
+    const error = document.createElement("p");
+    error.className = "product-status product-error";
+    error.textContent = shipmentState.detailError;
+    card.append(error);
+  }
+
+  const summary = document.createElement("div");
+  summary.className = "review-summary shipment-summary";
+  summary.append(
+    createReviewLine("อ้างอิง", shipment.reference || "-"),
+    createReviewLine("หมายเหตุ", shipment.note || "-"),
+    createReviewLine("สถานะ", shipmentStatusLabel(shipment.status)),
+    createReviewLine("สร้างเมื่อ", formatDateTime(shipment.createdAt) || "-"),
+    createReviewLine("ยืนยันเมื่อ", formatDateTime(shipment.confirmedAt) || "-"),
+    createReviewLine("ยกเลิกเมื่อ", formatDateTime(shipment.cancelledAt) || "-"),
+  );
+  card.append(summary);
+
+  const itemTitle = document.createElement("h3");
+  itemTitle.className = "stock-history-title";
+  itemTitle.textContent = "รายการสินค้า";
+  card.append(itemTitle, renderShipmentItemList(shipment.items || []));
+
+  if (shipmentState.actionError) {
+    const error = document.createElement("p");
+    error.className = "product-status product-error";
+    error.textContent = shipmentState.actionError;
+    card.append(error);
+  }
+
+  if (canUseShipmentMutationUi()) {
+    card.append(renderShipmentActionPanel(shipment));
+  }
+
+  view.append(card);
+  return view;
+}
+
+function renderShipmentItemList(items) {
+  if (!items.length) {
+    const empty = document.createElement("p");
+    empty.className = "product-status";
+    empty.textContent = "ยังไม่มีรายการสินค้า";
+    return empty;
+  }
+
+  const list = document.createElement("div");
+  list.className = "sku-list detail-sku-list";
+  items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "sku-summary";
+    const top = document.createElement("div");
+    top.className = "sku-summary-top";
+    const code = document.createElement("strong");
+    code.className = "sku-code";
+    code.textContent = item.skuCode || "-";
+    const qty = document.createElement("span");
+    qty.textContent = `จำนวน ${formatNumber(item.quantity)}`;
+    top.append(code, qty);
+
+    const productName = document.createElement("p");
+    productName.className = "placeholder-text";
+    productName.textContent = item.productName || "-";
+    const variant = document.createElement("p");
+    variant.className = "placeholder-text";
+    variant.textContent = formatVariantText(item) || "-";
+    card.append(top, productName, variant);
+    list.append(card);
+  });
+  return list;
+}
+
+function renderShipmentActionPanel(shipment) {
+  const section = document.createElement("section");
+  section.className = "stock-mutation-section shipment-action-section";
+
+  if (shipment.status === "CANCELLED" || shipment.status === "DISPATCHED") {
+    return section;
+  }
+
+  const note = document.createElement("p");
+  note.className = "placeholder-text";
+  note.textContent = "Phase นี้ยังไม่ตัด Stock และไม่มี Dispatch";
+  section.append(note);
+
+  const actions = document.createElement("div");
+  actions.className = "stock-mutation-actions";
+
+  if (shipment.status === "DRAFT") {
+    actions.append(createShipmentActionButton("ยืนยัน Shipment", "confirmShipment", "ยืนยันแล้ว แต่ยังไม่ตัด Stock"));
+  }
+
+  if (shipment.status === "DRAFT" || shipment.status === "CONFIRMED") {
+    actions.append(createShipmentActionButton("ยกเลิก Shipment", "cancelShipment", "ยกเลิก Shipment นี้ โดยไม่มีผลกับ Stock"));
+  }
+
+  section.append(actions);
+  return section;
+}
+
+function createShipmentActionButton(label, action, message) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = action === "confirmShipment" ? "primary-action-button" : "secondary-action-button";
+  button.textContent = shipmentState.actionSubmitting === action ? "กำลังบันทึก..." : label;
+  button.disabled = !!shipmentState.actionSubmitting || shipmentState.detailTransition === "exit";
+  button.addEventListener("click", () => {
+    const accepted = window.confirm(message);
+    if (!accepted) {
+      return;
+    }
+    submitShipmentAction(action);
+  });
+  return button;
+}
+
+async function submitShipmentAction(action) {
+  const shipment = shipmentState.detail;
+  if (!shipment || shipmentState.actionSubmitting) {
+    return;
+  }
+
+  shipmentState.actionSubmitting = action;
+  shipmentState.actionError = "";
+  rerenderShipmentView();
+
+  try {
+    const response = await callAuthApi(action, {
+      sessionToken: requireSessionToken(),
+      shipmentId: shipment.shipmentId,
+    });
+    requireSuccess(response);
+    await refreshShipmentAfterMutation(shipment.shipmentId);
+    shipmentCreateState.message = action === "confirmShipment"
+      ? "ยืนยัน Shipment สำเร็จ"
+      : "ยกเลิก Shipment สำเร็จ";
+    shipmentCreateState.messageType = "info";
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+    shipmentState.actionError = toShipmentActionErrorMessage(error, action);
+  } finally {
+    shipmentState.actionSubmitting = "";
+    rerenderShipmentView();
+  }
+}
+
+function renderCreateShipmentFlow() {
+  const wrapper = document.createElement("section");
+  wrapper.className = "create-product-flow shipment-create-flow";
+
+  if (!canUseShipmentMutationUi()) {
+    const denied = document.createElement("section");
+    denied.className = "card product-error";
+    denied.textContent = "บัญชีนี้ไม่มีสิทธิ์จัดการ Shipment";
+    wrapper.append(denied);
+    return wrapper;
+  }
+
+  if (shipmentCreateState.errors.length > 0) {
+    const errorBox = document.createElement("section");
+    errorBox.className = "card create-error-list";
+    const title = document.createElement("h2");
+    title.textContent = "ตรวจสอบข้อมูล Shipment";
+    const list = document.createElement("ul");
+    shipmentCreateState.errors.forEach((error) => {
+      const item = document.createElement("li");
+      item.textContent = error;
+      list.append(item);
+    });
+    errorBox.append(title, list);
+    wrapper.append(errorBox);
+  }
+
+  wrapper.append(shipmentCreateState.mode === "review"
+    ? renderCreateShipmentReview()
+    : renderCreateShipmentForm());
+  return wrapper;
+}
+
+function renderCreateShipmentForm() {
+  const form = document.createElement("form");
+  form.className = "card create-product-form shipment-create-form";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    openCreateShipmentReview();
+  });
+
+  const title = document.createElement("h2");
+  title.textContent = "สร้าง Shipment";
+  const note = document.createElement("p");
+  note.className = "placeholder-text";
+  note.textContent = "กรอก SKU code และจำนวนสินค้า การสร้าง Shipment ยังไม่ตัด Stock";
+  form.append(title, note);
+
+  form.append(
+    createTextField("shipment_reference", "อ้างอิง", shipmentCreateState.form.reference, false, (value) => {
+      shipmentCreateState.form.reference = value;
+    }),
+    createTextAreaField("shipment_note", "หมายเหตุ", shipmentCreateState.form.note, (value) => {
+      shipmentCreateState.form.note = value;
+    }),
+  );
+
+  const itemHeader = document.createElement("div");
+  itemHeader.className = "create-section-header";
+  const itemTitle = document.createElement("h3");
+  itemTitle.textContent = "รายการสินค้า";
+  const addItem = document.createElement("button");
+  addItem.type = "button";
+  addItem.className = "secondary-action-button";
+  addItem.textContent = "+ เพิ่มรายการ";
+  addItem.addEventListener("click", () => {
+    shipmentCreateState.form.items.push(createEmptyShipmentItemForm());
+    rerenderShipmentView();
+  });
+  itemHeader.append(itemTitle, addItem);
+  form.append(itemHeader);
+
+  shipmentCreateState.form.items.forEach((item, index) => {
+    form.append(renderShipmentItemForm(item, index));
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "create-form-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary-action-button";
+  cancel.textContent = "ยกเลิก";
+  cancel.addEventListener("click", resetShipmentCreateFlow);
+  const review = document.createElement("button");
+  review.type = "submit";
+  review.className = "primary-action-button";
+  review.textContent = "ตรวจสอบก่อนสร้าง";
+  actions.append(cancel, review);
+  form.append(actions);
+
+  return form;
+}
+
+function renderShipmentItemForm(item, index) {
+  const card = document.createElement("section");
+  card.className = "sku-form-card shipment-item-form-card";
+
+  const header = document.createElement("div");
+  header.className = "sku-form-header";
+  const title = document.createElement("h3");
+  title.textContent = `รายการ #${index + 1}`;
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "remove-sku-button";
+  remove.textContent = "ลบ";
+  remove.disabled = shipmentCreateState.form.items.length === 1;
+  remove.addEventListener("click", () => {
+    if (shipmentCreateState.form.items.length === 1) {
+      return;
+    }
+    shipmentCreateState.form.items.splice(index, 1);
+    rerenderShipmentView();
+  });
+  header.append(title, remove);
+  card.append(header);
+
+  card.append(
+    createTextField(`shipment_sku_${index}`, "SKU code", item.skuCode, true, (value) => {
+      shipmentCreateState.form.items[index].skuCode = value;
+    }),
+    createNumberField(`shipment_quantity_${index}`, "จำนวน", item.quantity, true, "1", (value) => {
+      shipmentCreateState.form.items[index].quantity = value;
+    }),
+  );
+
+  return card;
+}
+
+function renderCreateShipmentReview() {
+  const review = document.createElement("section");
+  review.className = "card create-review-card shipment-review-card";
+
+  const title = document.createElement("h2");
+  title.textContent = "ตรวจสอบ Shipment";
+  const note = document.createElement("p");
+  note.className = "placeholder-text";
+  note.textContent = "การสร้าง Shipment ยังไม่ตัด Stock";
+  review.append(title, note);
+
+  const summary = document.createElement("div");
+  summary.className = "review-summary";
+  summary.append(
+    createReviewLine("อ้างอิง", shipmentCreateState.form.reference || "-"),
+    createReviewLine("หมายเหตุ", shipmentCreateState.form.note || "-"),
+    createReviewLine("จำนวนรายการ", shipmentCreateState.form.items.length),
+  );
+  review.append(summary);
+
+  const itemList = document.createElement("div");
+  itemList.className = "sku-list";
+  shipmentCreateState.form.items.forEach((item, index) => {
+    const card = document.createElement("article");
+    card.className = "sku-summary";
+    card.append(
+      createReviewLine(`รายการ #${index + 1}`, normalizeSkuCodeForUi(item.skuCode)),
+      createReviewLine("จำนวน", formatNumber(Number(item.quantity))),
+    );
+    itemList.append(card);
+  });
+  review.append(itemList);
+
+  const actions = document.createElement("div");
+  actions.className = "create-form-actions";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "secondary-action-button";
+  back.textContent = "กลับไปแก้ไข";
+  back.disabled = shipmentCreateState.submitting;
+  back.addEventListener("click", () => {
+    shipmentCreateState.mode = "form";
+    shipmentCreateState.errors = [];
+    rerenderShipmentView();
+  });
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "primary-action-button";
+  submit.textContent = shipmentCreateState.submitting ? "กำลังสร้าง..." : "สร้าง Shipment";
+  submit.disabled = shipmentCreateState.submitting;
+  submit.addEventListener("click", submitCreateShipment);
+  actions.append(back, submit);
+  review.append(actions);
+
+  return review;
+}
+
+function openCreateShipmentReview() {
+  shipmentCreateState.errors = validateCreateShipmentForm();
+  shipmentCreateState.message = "";
+  if (shipmentCreateState.errors.length > 0) {
+    rerenderShipmentView();
+    return;
+  }
+
+  shipmentCreateState.form.reference = shipmentCreateState.form.reference.trim();
+  shipmentCreateState.form.note = shipmentCreateState.form.note.trim();
+  shipmentCreateState.mode = "review";
+  rerenderShipmentView();
+}
+
+async function submitCreateShipment() {
+  if (shipmentCreateState.submitting) {
+    return;
+  }
+
+  shipmentCreateState.errors = validateCreateShipmentForm();
+  if (shipmentCreateState.errors.length > 0) {
+    shipmentCreateState.mode = "form";
+    rerenderShipmentView();
+    return;
+  }
+
+  shipmentCreateState.submitting = true;
+  rerenderShipmentView();
+
+  try {
+    const response = await callAuthApi("createShipment", {
+      sessionToken: requireSessionToken(),
+      shipment: createShipmentPayloadFromForm(),
+    });
+    const data = requireSuccess(response);
+    resetShipmentCreateState();
+    shipmentCreateState.message = "สร้าง Shipment สำเร็จ";
+    shipmentCreateState.messageType = "info";
+    await refreshShipmentsAfterCreate(data.shipmentId || "");
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+    shipmentCreateState.submitting = false;
+    shipmentCreateState.errors = [toShipmentCreateErrorMessage(error)];
+    shipmentCreateState.mode = "form";
+    rerenderShipmentView();
+  }
+}
+
+function validateCreateShipmentForm() {
+  const errors = [];
+  const items = shipmentCreateState.form.items;
+  const seen = new Set();
+
+  if (!items.length) {
+    errors.push("ต้องมีรายการสินค้าอย่างน้อย 1 รายการ");
+  }
+
+  items.forEach((item, index) => {
+    const skuCode = normalizeSkuCodeForUi(item.skuCode);
+    if (!skuCode) {
+      errors.push(`รายการ #${index + 1}: กรุณากรอก SKU code`);
+      return;
+    }
+
+    if (seen.has(skuCode)) {
+      errors.push(`รายการ #${index + 1}: SKU ซ้ำใน Shipment เดียวกัน`);
+    }
+    seen.add(skuCode);
+
+    if (!isPositiveIntegerInput(item.quantity)) {
+      errors.push(`รายการ #${index + 1}: จำนวนต้องเป็นจำนวนเต็มมากกว่า 0`);
+    }
+  });
+
+  return errors;
+}
+
+function createShipmentPayloadFromForm() {
+  return {
+    reference: String(shipmentCreateState.form.reference || "").trim(),
+    note: String(shipmentCreateState.form.note || "").trim(),
+    items: shipmentCreateState.form.items.map((item) => ({
+      skuCode: normalizeSkuCodeForUi(item.skuCode),
+      quantity: Number(item.quantity),
+    })),
+  };
+}
+
+async function refreshShipmentsAfterCreate(shipmentId) {
+  await refreshShipmentListSnapshot();
+  shipmentCreateState.mode = "list";
+  if (shipmentId) {
+    const created = findShipmentById(shipmentState.items, shipmentId) || { shipmentId };
+    await openShipmentDetail(created);
+    return;
+  }
+  rerenderShipmentView();
+}
+
+async function refreshShipmentAfterMutation(shipmentId) {
+  await refreshShipmentListSnapshot();
+  const response = await callAuthApi("getShipmentDetail", {
+    sessionToken: requireSessionToken(),
+    shipmentId,
+  });
+  shipmentState.detail = requireSuccess(response);
+  const listItem = findShipmentById(shipmentState.items, shipmentId);
+  if (listItem && shipmentState.detail) {
+    shipmentState.detail.confirmedAt = shipmentState.detail.confirmedAt || listItem.confirmedAt || "";
+    shipmentState.detail.cancelledAt = shipmentState.detail.cancelledAt || listItem.cancelledAt || "";
+  }
+}
+
+async function refreshShipmentListSnapshot() {
+  const requestedPageSize = Math.min(
+    50,
+    Math.max(shipmentState.pageSize, shipmentState.items.length || shipmentState.pageSize),
+  );
+  const response = await callAuthApi("listShipments", {
+    sessionToken: requireSessionToken(),
+    page: 1,
+    pageSize: requestedPageSize,
+  });
+  const data = requireSuccess(response);
+  shipmentState.items = Array.isArray(data.items) ? data.items : [];
+  shipmentState.page = Math.max(1, Math.ceil(shipmentState.items.length / shipmentState.pageSize));
+  shipmentState.hasMore = !!data.hasMore;
+  shipmentState.initialized = true;
+  shipmentState.error = "";
+}
+
+function closeShipmentDetail() {
+  if (shipmentState.detailTransition === "exit" ||
+    shipmentState.detailLoading ||
+    shipmentState.actionSubmitting) {
+    return;
+  }
+
+  const detailView = document.querySelector(".shipment-detail-view");
+  const finish = () => {
+    shipmentState.detail = null;
+    shipmentState.detailError = "";
+    shipmentState.detailLoading = false;
+    shipmentState.detailTransition = "";
+    shipmentState.actionError = "";
+    rerenderShipmentView();
+    scheduleShipmentListScrollRestore();
+  };
+
+  if (!detailView || shouldReduceMotion()) {
+    finish();
+    return;
+  }
+
+  shipmentState.detailTransition = "exit";
+  detailView.classList.add("is-exiting");
+  const backButton = detailView.querySelector(".detail-close-button");
+  if (backButton) {
+    backButton.disabled = true;
+  }
+  detailView.addEventListener("animationend", finish, { once: true });
+}
+
+function resetShipmentCreateFlow() {
+  resetShipmentCreateState();
+  rerenderShipmentView();
+}
+
+function resetShipmentCreateState() {
+  shipmentCreateState.mode = "list";
+  shipmentCreateState.form = createEmptyShipmentForm();
+  shipmentCreateState.errors = [];
+  shipmentCreateState.submitting = false;
+  shipmentCreateState.message = "";
+  shipmentCreateState.messageType = "info";
+}
+
+function createEmptyShipmentForm() {
+  return {
+    reference: "",
+    note: "",
+    items: [createEmptyShipmentItemForm()],
+  };
+}
+
+function createEmptyShipmentItemForm() {
+  return {
+    skuCode: "",
+    quantity: "",
+  };
+}
+
+function appendUniqueShipments(existingItems, nextItems) {
+  const seen = new Set(existingItems.map((item) => item.shipmentId));
+  const merged = [...existingItems];
+  nextItems.forEach((item) => {
+    if (!item.shipmentId || seen.has(item.shipmentId)) {
+      return;
+    }
+    seen.add(item.shipmentId);
+    merged.push(item);
+  });
+  return merged;
+}
+
+function findShipmentById(items, shipmentId) {
+  return (Array.isArray(items) ? items : []).find((item) => item.shipmentId === shipmentId) || null;
+}
+
+function canUseShipmentMutationUi() {
+  if (!currentUser) {
+    return false;
+  }
+
+  if (currentUser.role === OWNER_ROLE) {
+    return true;
+  }
+
+  if (currentUser.role !== ADMIN_ROLE || !Array.isArray(currentUser.permissions)) {
+    return false;
+  }
+
+  return currentUser.permissions.includes(CONFIRM_SHIPMENT_PERMISSION);
+}
+
+function shipmentStatusLabel(status) {
+  if (status === "DRAFT") {
+    return "แบบร่าง";
+  }
+  if (status === "CONFIRMED") {
+    return "ยืนยันแล้ว";
+  }
+  if (status === "CANCELLED") {
+    return "ยกเลิกแล้ว";
+  }
+  if (status === "DISPATCHED") {
+    return "ส่งออกแล้ว";
+  }
+  return status || "-";
+}
+
+function toShipmentCreateErrorMessage(error) {
+  const code = error && (error.code || error.message);
+  if (code === "VALIDATION_ERROR") {
+    return "ข้อมูล Shipment ไม่ถูกต้อง กรุณาตรวจสอบรายการ";
+  }
+  return toShipmentErrorMessage(error);
+}
+
+function toShipmentActionErrorMessage(error, action) {
+  const code = error && (error.code || error.message);
+  if (code === "VALIDATION_ERROR") {
+    return action === "confirmShipment"
+      ? "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยืนยัน"
+      : "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยกเลิก";
+  }
+  return toShipmentErrorMessage(error);
+}
+
+function toShipmentErrorMessage(error) {
+  const code = error && (error.code || error.message);
+  if (code === "VALIDATION_ERROR") {
+    return "ข้อมูล Shipment ไม่ถูกต้อง กรุณาตรวจสอบรายการ";
+  }
+  if (code === "PERMISSION_DENIED") {
+    return "บัญชีนี้ไม่มีสิทธิ์จัดการ Shipment";
+  }
+  if (code === "NOT_FOUND") {
+    return "ไม่พบ Shipment นี้";
+  }
+  if (code === "NETWORK_RESPONSE_NOT_OK" || error instanceof TypeError) {
+    return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
+  }
+  return toThaiErrorMessage(error);
+}
+
+function isPositiveIntegerInput(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return false;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && Math.floor(parsed) === parsed && parsed > 0;
+}
+
+function scheduleShipmentDetailTopScroll() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(getProductContentTopScroll());
+  });
+}
+
+function scheduleShipmentListScrollRestore() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(shipmentState.listScrollTop);
+  });
+}
+
+function rerenderShipmentView() {
+  if (activeViewName === "orders" && currentUser) {
+    setView("orders");
+  }
+}
+
 function renderStockView() {
   const section = document.createElement("section");
   section.className = "product-view stock-view";
@@ -1621,8 +2590,6 @@ function renderStockDetailView() {
   variant.className = "placeholder-text";
   variant.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
 
-  const buildMarker = renderStockTestBuildMarker();
-
   const quantities = document.createElement("div");
   quantities.className = "quantity-row stock-detail-quantities";
   quantities.append(
@@ -1638,24 +2605,9 @@ function renderStockDetailView() {
 
   const historyBody = renderStockHistoryBody();
 
-  card.append(header, variant);
-  if (buildMarker) {
-    card.append(buildMarker);
-  }
-  card.append(quantities, mutationSection, historyTitle, historyBody);
+  card.append(header, variant, quantities, mutationSection, historyTitle, historyBody);
   view.append(card);
   return view;
-}
-
-function renderStockTestBuildMarker() {
-  if (config.ENVIRONMENT !== "TEST") {
-    return null;
-  }
-
-  const marker = document.createElement("p");
-  marker.className = "placeholder-text";
-  marker.textContent = `TEST UI build: ${STOCK_TEST_UI_BUILD}`;
-  return marker;
 }
 
 function renderStockMutationSection(item) {
@@ -2023,10 +2975,7 @@ function isPositiveNumberInput(value) {
 function toStockMutationErrorMessage(error) {
   const code = error && (error.code || error.message);
   if (code === "VALIDATION_ERROR") {
-    const diagnosticCode = getSafeStockValidationDiagnosticCode(error && error.backendMessage);
-    return diagnosticCode
-      ? `ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล\nTEST detail: ${diagnosticCode}`
-      : "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล";
+    return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล";
   }
   if (code === "PERMISSION_DENIED") {
     return "บัญชีนี้ไม่มีสิทธิ์ปรับสต๊อก";
@@ -2038,33 +2987,6 @@ function toStockMutationErrorMessage(error) {
     return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
   }
   return toThaiErrorMessage(error);
-}
-
-function getSafeStockValidationDiagnosticCode(message) {
-  if (config.ENVIRONMENT !== "TEST") {
-    return "";
-  }
-
-  const value = String(message || "").trim();
-  const safeValidationMessages = {
-    "Request body is required.": "REQUEST_BODY_REQUIRED",
-    "actor user id is required.": "ACTOR_REQUIRED",
-    "Transaction input is required.": "TRANSACTION_INPUT_REQUIRED",
-    "transaction_type is not supported.": "UNSUPPORTED_TRANSACTION_TYPE",
-    "sku_id is required.": "LEGACY_SKU_ID_REQUIRED",
-    "sku_id is not valid.": "LEGACY_SKU_ID_NOT_VALID",
-    "sku_id is not accepted from client.": "LEGACY_SKU_ID_REJECTED",
-    "skuCode is required.": "MISSING_SKU_CODE",
-    "skuCode was not found.": "SKU_NOT_FOUND",
-    "inventory balance is missing.": "INVENTORY_BALANCE_NOT_FOUND",
-    "reason is required.": "MISSING_REASON",
-    "quantity is required.": "MISSING_QUANTITY",
-    "quantity must be a number.": "INVALID_QUANTITY",
-    "STOCK_IN quantity must be greater than 0.": "INVALID_QUANTITY",
-    "on_hand_qty must be a non-negative number.": "INVALID_CURRENT_BALANCE",
-  };
-
-  return safeValidationMessages[value] || "";
 }
 
 function createEmptyStockMutationState() {
