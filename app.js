@@ -411,6 +411,13 @@ function renderProductView() {
     return section;
   }
 
+  if (productState.detail) {
+    productDom = null;
+    section.append(renderProductDetailView());
+    queueMicrotask(scrollProductContentToTop);
+    return section;
+  }
+
   toolbar.append(searchLabel);
 
   const status = document.createElement("div");
@@ -432,18 +439,14 @@ function renderProductView() {
     loadProducts({ reset: false });
   });
 
-  const detailPanel = document.createElement("div");
-  detailPanel.className = "product-detail-panel";
-
   productDom = {
     status,
     list,
     loadMoreButton,
-    detailPanel,
     searchInput,
   };
 
-  section.append(toolbar, status, list, loadMoreButton, detailPanel);
+  section.append(toolbar, status, list, loadMoreButton);
   updateProductDom();
 
   if (!productState.initialized) {
@@ -515,7 +518,7 @@ function openProductDetail(product) {
   productState.detail = product;
   productState.detailError = "";
   productState.detailLoading = false;
-  updateProductDom();
+  rerenderProductView();
 }
 
 function renderCreateProductFlow() {
@@ -1028,7 +1031,6 @@ function updateProductDom() {
   productDom.loadMoreButton.hidden = !productState.hasMore;
   productDom.loadMoreButton.disabled = productState.loading;
 
-  renderProductDetailPanel();
 }
 
 function createProductCard(product) {
@@ -1125,27 +1127,28 @@ function createQuantityChip(label, value) {
   return chip;
 }
 
-function renderProductDetailPanel() {
-  clearElement(productDom.detailPanel);
+function renderProductDetailView() {
+  const view = document.createElement("section");
+  view.className = "product-detail-view";
 
   if (productState.detailLoading) {
     const loading = document.createElement("section");
     loading.className = "card product-detail-card";
     loading.textContent = "กำลังโหลดรายละเอียดสินค้า...";
-    productDom.detailPanel.append(loading);
-    return;
+    view.append(loading);
+    return view;
   }
 
   if (productState.detailError) {
     const error = document.createElement("section");
     error.className = "card product-detail-card product-error";
     error.textContent = productState.detailError;
-    productDom.detailPanel.append(error);
-    return;
+    view.append(error);
+    return view;
   }
 
   if (!productState.detail) {
-    return;
+    return view;
   }
 
   const product = productState.detail;
@@ -1169,7 +1172,8 @@ function renderProductDetailPanel() {
   close.addEventListener("click", () => {
     productState.detail = null;
     productState.detailError = "";
-    updateProductDom();
+    productState.detailLoading = false;
+    rerenderProductView();
   });
   header.append(titleWrap, close);
 
@@ -1180,7 +1184,14 @@ function renderProductDetailPanel() {
   });
 
   card.append(header, skuList);
-  productDom.detailPanel.append(card);
+  view.append(card);
+  return view;
+}
+
+function scrollProductContentToTop() {
+  if (contentArea) {
+    contentArea.scrollTop = 0;
+  }
 }
 
 function appendUniqueProducts(existingItems, nextItems) {
