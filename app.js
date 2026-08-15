@@ -252,6 +252,7 @@ function requireSuccess(response) {
 
   const error = new Error(response && response.error ? response.error.code : "BACKEND_ERROR");
   error.code = response && response.error ? response.error.code : "BACKEND_ERROR";
+  error.backendMessage = response && response.error ? String(response.error.message || "") : "";
   throw error;
 }
 
@@ -2004,7 +2005,10 @@ function isPositiveNumberInput(value) {
 function toStockMutationErrorMessage(error) {
   const code = error && (error.code || error.message);
   if (code === "VALIDATION_ERROR") {
-    return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล";
+    const diagnosticCode = getSafeStockValidationDiagnosticCode(error && error.backendMessage);
+    return diagnosticCode
+      ? `ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล\nTEST detail: ${diagnosticCode}`
+      : "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล";
   }
   if (code === "PERMISSION_DENIED") {
     return "บัญชีนี้ไม่มีสิทธิ์ปรับสต๊อก";
@@ -2016,6 +2020,29 @@ function toStockMutationErrorMessage(error) {
     return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
   }
   return toThaiErrorMessage(error);
+}
+
+function getSafeStockValidationDiagnosticCode(message) {
+  if (config.ENVIRONMENT !== "TEST") {
+    return "";
+  }
+
+  const value = String(message || "").trim();
+  const safeValidationMessages = {
+    "Transaction input is required.": "TRANSACTION_INPUT_REQUIRED",
+    "transaction_type is not supported.": "UNSUPPORTED_TRANSACTION_TYPE",
+    "sku_id is not accepted from client.": "LEGACY_SKU_ID_REJECTED",
+    "skuCode is required.": "MISSING_SKU_CODE",
+    "skuCode was not found.": "SKU_NOT_FOUND",
+    "inventory balance is missing.": "INVENTORY_BALANCE_NOT_FOUND",
+    "reason is required.": "MISSING_REASON",
+    "quantity is required.": "MISSING_QUANTITY",
+    "quantity must be a number.": "INVALID_QUANTITY",
+    "STOCK_IN quantity must be greater than 0.": "INVALID_QUANTITY",
+    "on_hand_qty must be a non-negative number.": "INVALID_CURRENT_BALANCE",
+  };
+
+  return safeValidationMessages[value] || "";
 }
 
 function createEmptyStockMutationState() {
