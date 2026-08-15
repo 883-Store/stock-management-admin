@@ -41,3 +41,7 @@ Stock list/search/detail/history UI is read-only and uses the authenticated
 Stock Read APIs. Before runtime testing it from GitHub Pages, deploy a new TEST
 Apps Script Web App version that includes `listStock`, `searchStock`, and
 `getStockHistory`.
+
+Shipment Dispatch UI uses the authenticated `dispatchShipment` route. Before
+runtime testing Dispatch from GitHub Pages TEST, deploy a new TEST Apps Script
+Web App version that includes the Phase 4F backend.

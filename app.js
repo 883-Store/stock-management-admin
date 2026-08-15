@@ -81,6 +81,8 @@ const shipmentState = {
   detailTransition: "",
   actionSubmitting: "",
   actionError: "",
+  dispatchReview: false,
+  dispatchPreview: [],
   listScrollTop: 0,
   requestId: 0,
   detailRequestId: 0,
@@ -1456,6 +1458,8 @@ async function loadShipments(options) {
     shipmentState.detail = null;
     shipmentState.detailError = "";
     shipmentState.actionError = "";
+    shipmentState.dispatchReview = false;
+    shipmentState.dispatchPreview = [];
   }
 
   shipmentState.loading = true;
@@ -1587,6 +1591,8 @@ async function openShipmentDetail(shipment) {
   shipmentState.detailLoading = true;
   shipmentState.detailError = "";
   shipmentState.actionError = "";
+  shipmentState.dispatchReview = false;
+  shipmentState.dispatchPreview = [];
   shipmentState.detailTransition = "enter";
   const requestId = shipmentState.detailRequestId + 1;
   shipmentState.detailRequestId = requestId;
@@ -1735,16 +1741,19 @@ function renderShipmentActionPanel(shipment) {
     return section;
   }
 
-  const note = document.createElement("p");
-  note.className = "placeholder-text";
-  note.textContent = "Phase นี้ยังไม่ตัด Stock และไม่มี Dispatch";
-  section.append(note);
-
   const actions = document.createElement("div");
   actions.className = "stock-mutation-actions";
 
   if (shipment.status === "DRAFT") {
+    const note = document.createElement("p");
+    note.className = "placeholder-text";
+    note.textContent = "ยืนยัน Shipment แล้ว Stock จะยังไม่ถูกตัด";
+    section.append(note);
     actions.append(createShipmentActionButton("ยืนยัน Shipment", "confirmShipment", "ยืนยันแล้ว แต่ยังไม่ตัด Stock"));
+  }
+
+  if (shipment.status === "CONFIRMED" && canDispatchShipmentUi()) {
+    section.append(renderShipmentDispatchBlock(shipment));
   }
 
   if (shipment.status === "DRAFT" || shipment.status === "CONFIRMED") {
@@ -1753,6 +1762,108 @@ function renderShipmentActionPanel(shipment) {
 
   section.append(actions);
   return section;
+}
+
+function renderShipmentDispatchBlock(shipment) {
+  if (shipmentState.dispatchReview) {
+    return renderShipmentDispatchReview(shipment);
+  }
+
+  const block = document.createElement("section");
+  block.className = "stock-mutation-form shipment-dispatch-block";
+
+  const title = document.createElement("h3");
+  title.textContent = "Dispatch Shipment";
+
+  const warning = document.createElement("p");
+  warning.className = "shipment-dispatch-warning";
+  warning.textContent = "การ Dispatch จะตัด Stock จริง และไม่สามารถ Dispatch ซ้ำได้";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "danger-action-button";
+  button.textContent = shipmentState.actionSubmitting === "dispatchPreview"
+    ? "กำลังเตรียมข้อมูล..."
+    : "Dispatch Shipment";
+  button.disabled = !!shipmentState.actionSubmitting || shipmentState.detailTransition === "exit";
+  button.addEventListener("click", () => openShipmentDispatchReview(shipment));
+
+  block.append(title, warning, button);
+  return block;
+}
+
+function renderShipmentDispatchReview(shipment) {
+  const review = document.createElement("section");
+  review.className = "stock-mutation-review shipment-dispatch-review";
+
+  const title = document.createElement("h3");
+  title.textContent = "ตรวจสอบก่อน Dispatch";
+
+  const warning = document.createElement("p");
+  warning.className = "shipment-dispatch-warning";
+  warning.textContent = "การ Dispatch จะตัด Stock จริง และไม่สามารถ Dispatch ซ้ำได้";
+
+  const list = document.createElement("div");
+  list.className = "sku-list detail-sku-list";
+  const previews = shipmentState.dispatchPreview.length
+    ? shipmentState.dispatchPreview
+    : (shipment.items || []).map((item) => shipmentDispatchPreviewItem(item, null));
+
+  previews.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "sku-summary shipment-dispatch-preview-card";
+    const top = document.createElement("div");
+    top.className = "sku-summary-top";
+    const code = document.createElement("strong");
+    code.className = "sku-code";
+    code.textContent = item.skuCode || "-";
+    const quantity = document.createElement("span");
+    quantity.textContent = `จำนวน ${formatNumber(item.quantity)}`;
+    top.append(code, quantity);
+
+    const stock = document.createElement("p");
+    stock.className = "placeholder-text";
+    stock.textContent = item.currentOnHand === null
+      ? "Stock ปัจจุบัน: ไม่มีข้อมูล"
+      : `Stock ปัจจุบัน ${formatNumber(item.currentOnHand)} → หลัง Dispatch ${formatNumber(item.expectedAfter)}`;
+
+    if (item.insufficient) {
+      const insufficient = document.createElement("p");
+      insufficient.className = "product-status product-error";
+      insufficient.textContent = "Stock อาจไม่พอ Backend จะเป็นผู้ตัดสินอีกครั้ง";
+      card.append(top, stock, insufficient);
+    } else {
+      card.append(top, stock);
+    }
+    list.append(card);
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "create-form-actions";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "secondary-action-button";
+  back.textContent = "กลับ";
+  back.disabled = !!shipmentState.actionSubmitting;
+  back.addEventListener("click", () => {
+    shipmentState.dispatchReview = false;
+    shipmentState.dispatchPreview = [];
+    shipmentState.actionError = "";
+    rerenderShipmentView();
+  });
+
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "danger-action-button";
+  submit.textContent = shipmentState.actionSubmitting === "dispatchShipment"
+    ? "กำลัง Dispatch..."
+    : "ยืนยัน Dispatch";
+  submit.disabled = !!shipmentState.actionSubmitting || shipmentState.detailTransition === "exit";
+  submit.addEventListener("click", () => submitShipmentAction("dispatchShipment"));
+
+  actions.append(back, submit);
+  review.append(title, warning, list, actions);
+  return review;
 }
 
 function createShipmentActionButton(label, action, message) {
@@ -1777,6 +1888,7 @@ async function submitShipmentAction(action) {
     return;
   }
 
+  const affectedItems = Array.isArray(shipment.items) ? shipment.items : [];
   shipmentState.actionSubmitting = action;
   shipmentState.actionError = "";
   rerenderShipmentView();
@@ -1788,9 +1900,12 @@ async function submitShipmentAction(action) {
     });
     requireSuccess(response);
     await refreshShipmentAfterMutation(shipment.shipmentId);
-    shipmentCreateState.message = action === "confirmShipment"
-      ? "ยืนยัน Shipment สำเร็จ"
-      : "ยกเลิก Shipment สำเร็จ";
+    if (action === "dispatchShipment") {
+      await refreshStockAfterShipmentDispatch(affectedItems);
+      shipmentState.dispatchReview = false;
+      shipmentState.dispatchPreview = [];
+    }
+    shipmentCreateState.message = shipmentActionSuccessMessage(action);
     shipmentCreateState.messageType = "info";
   } catch (error) {
     if (handleProductAuthFailure(error)) {
@@ -1801,6 +1916,56 @@ async function submitShipmentAction(action) {
     shipmentState.actionSubmitting = "";
     rerenderShipmentView();
   }
+}
+
+async function openShipmentDispatchReview(shipment) {
+  if (!shipment || shipment.status !== "CONFIRMED" || shipmentState.actionSubmitting) {
+    return;
+  }
+
+  shipmentState.actionSubmitting = "dispatchPreview";
+  shipmentState.actionError = "";
+  rerenderShipmentView();
+
+  try {
+    shipmentState.dispatchPreview = await buildShipmentDispatchPreview(shipment.items || []);
+    shipmentState.dispatchReview = true;
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+    shipmentState.actionError = toShipmentErrorMessage(error);
+  } finally {
+    shipmentState.actionSubmitting = "";
+    rerenderShipmentView();
+  }
+}
+
+async function buildShipmentDispatchPreview(items) {
+  const snapshot = await fetchStockRefreshSnapshot(
+    requireSessionToken(),
+    "",
+    Math.min(50, Math.max(stockState.pageSize, stockState.items.length || stockState.pageSize)),
+  );
+  const stockItems = snapshot.items;
+
+  return items.map((item) => shipmentDispatchPreviewItem(
+    item,
+    findStockItemBySkuCode(stockItems, item.skuCode),
+  ));
+}
+
+function shipmentDispatchPreviewItem(item, stockItem) {
+  const quantity = Number(item.quantity || 0);
+  const currentOnHand = stockItem ? Number(stockItem.onHandQty) : null;
+  const expectedAfter = currentOnHand === null ? null : currentOnHand - quantity;
+  return {
+    skuCode: item.skuCode,
+    quantity: quantity,
+    currentOnHand: currentOnHand,
+    expectedAfter: expectedAfter,
+    insufficient: expectedAfter !== null && expectedAfter < 0,
+  };
 }
 
 function renderCreateShipmentFlow() {
@@ -2121,6 +2286,39 @@ async function refreshShipmentListSnapshot() {
   shipmentState.error = "";
 }
 
+async function refreshStockAfterShipmentDispatch(items) {
+  const affectedSkuCodes = (Array.isArray(items) ? items : [])
+    .map((item) => normalizeSkuCodeForUi(item.skuCode))
+    .filter(Boolean);
+
+  if (affectedSkuCodes.length === 0 || (!stockState.initialized && !stockState.detail)) {
+    return;
+  }
+
+  const currentStockDetailSku = stockState.detail
+    ? normalizeSkuCodeForUi(stockState.detail.skuCode)
+    : "";
+  if (currentStockDetailSku && affectedSkuCodes.includes(currentStockDetailSku)) {
+    await refreshStockAfterMutation(currentStockDetailSku);
+    return;
+  }
+
+  if (!stockState.initialized) {
+    return;
+  }
+
+  const token = requireSessionToken();
+  const requestedPageSize = Math.min(
+    50,
+    Math.max(stockState.pageSize, stockState.items.length || stockState.pageSize),
+  );
+  const snapshot = await fetchStockRefreshSnapshot(token, stockState.query.trim(), requestedPageSize);
+  stockState.items = snapshot.items;
+  stockState.page = Math.max(1, Math.ceil(stockState.items.length / stockState.pageSize));
+  stockState.hasMore = !!snapshot.hasMore;
+  stockState.error = "";
+}
+
 function closeShipmentDetail() {
   if (shipmentState.detailTransition === "exit" ||
     shipmentState.detailLoading ||
@@ -2135,6 +2333,8 @@ function closeShipmentDetail() {
     shipmentState.detailLoading = false;
     shipmentState.detailTransition = "";
     shipmentState.actionError = "";
+    shipmentState.dispatchReview = false;
+    shipmentState.dispatchPreview = [];
     rerenderShipmentView();
     scheduleShipmentListScrollRestore();
   };
@@ -2215,6 +2415,33 @@ function canUseShipmentMutationUi() {
   return currentUser.permissions.includes(CONFIRM_SHIPMENT_PERMISSION);
 }
 
+function canDispatchShipmentUi() {
+  if (!currentUser) {
+    return false;
+  }
+
+  if (currentUser.role === OWNER_ROLE) {
+    return true;
+  }
+
+  if (currentUser.role !== ADMIN_ROLE || !Array.isArray(currentUser.permissions)) {
+    return false;
+  }
+
+  return currentUser.permissions.includes(CONFIRM_SHIPMENT_PERMISSION) &&
+    currentUser.permissions.includes(ADJUST_STOCK_PERMISSION);
+}
+
+function shipmentActionSuccessMessage(action) {
+  if (action === "confirmShipment") {
+    return "ยืนยัน Shipment สำเร็จ";
+  }
+  if (action === "dispatchShipment") {
+    return "Dispatch Shipment สำเร็จ";
+  }
+  return "ยกเลิก Shipment สำเร็จ";
+}
+
 function shipmentStatusLabel(status) {
   if (status === "DRAFT") {
     return "แบบร่าง";
@@ -2242,9 +2469,16 @@ function toShipmentCreateErrorMessage(error) {
 function toShipmentActionErrorMessage(error, action) {
   const code = error && (error.code || error.message);
   if (code === "VALIDATION_ERROR") {
-    return action === "confirmShipment"
-      ? "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยืนยัน"
-      : "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยกเลิก";
+    if (action === "confirmShipment") {
+      return "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยืนยัน";
+    }
+    if (action === "dispatchShipment") {
+      return "ไม่สามารถ Dispatch Shipment นี้ได้ กรุณาตรวจสอบสถานะและ Stock";
+    }
+    return "สถานะ Shipment ปัจจุบันไม่อนุญาตให้ยกเลิก";
+  }
+  if (code === "PERMISSION_DENIED" && action === "dispatchShipment") {
+    return "บัญชีนี้ไม่มีสิทธิ์ Dispatch Shipment";
   }
   return toShipmentErrorMessage(error);
 }

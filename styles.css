@@ -197,6 +197,7 @@ p {
 .create-product-entry-button:focus-visible,
 .stock-mutation-entry-button:focus-visible,
 .primary-action-button:focus-visible,
+.danger-action-button:focus-visible,
 .secondary-action-button:focus-visible,
 .remove-sku-button:focus-visible {
   outline: 3px solid rgba(28, 130, 101, 0.24);
@@ -555,6 +556,7 @@ p {
 .create-product-entry-button,
 .stock-mutation-entry-button,
 .primary-action-button,
+.danger-action-button,
 .secondary-action-button,
 .remove-sku-button {
   min-height: 44px;
@@ -572,6 +574,11 @@ p {
   color: #ffffff;
 }
 
+.danger-action-button {
+  background: #b42318;
+  color: #ffffff;
+}
+
 .secondary-action-button,
 .remove-sku-button {
   background: #dde8ef;
@@ -580,6 +587,7 @@ p {
 
 .remove-sku-button:disabled,
 .primary-action-button:disabled,
+.danger-action-button:disabled,
 .secondary-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
@@ -651,6 +659,17 @@ p {
 
 .stock-mutation-message[data-type="info"] {
   color: #1c8265;
+}
+
+.shipment-dispatch-warning {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid #f3c2bd;
+  border-radius: 8px;
+  background: #fff7f6;
+  color: #8c1d18;
+  font-size: 14px;
+  line-height: 1.45;
 }
 
 .stock-mutation-errors {
