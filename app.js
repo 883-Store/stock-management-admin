@@ -21,6 +21,8 @@ const SESSION_TOKEN_KEY = "stock-admin-test-session-token";
 const PRODUCT_PAGE_SIZE = 20;
 const STOCK_PAGE_SIZE = 20;
 const OWNER_ROLE = "OWNER";
+const ADMIN_ROLE = "ADMIN";
+const ADJUST_STOCK_PERMISSION = "ADJUST_STOCK";
 
 let currentUser = null;
 let activeViewName = "home";
@@ -58,6 +60,7 @@ const stockState = {
   historyError: "",
   detailTransition: "",
   listScrollTop: 0,
+  mutation: createEmptyStockMutationState(),
   requestId: 0,
   historyRequestId: 0,
 };
@@ -986,6 +989,22 @@ function canUseCreateProductUi() {
   return !!currentUser && currentUser.role === OWNER_ROLE;
 }
 
+function canUseStockMutationUi() {
+  if (!currentUser) {
+    return false;
+  }
+
+  if (currentUser.role === OWNER_ROLE) {
+    return true;
+  }
+
+  if (currentUser.role !== ADMIN_ROLE || !Array.isArray(currentUser.permissions)) {
+    return false;
+  }
+
+  return currentUser.permissions.includes(ADJUST_STOCK_PERMISSION);
+}
+
 function normalizeSkuCodeForUi(value) {
   return String(value || "").trim().toUpperCase();
 }
@@ -1395,6 +1414,7 @@ async function loadStock(options) {
     stockState.detail = null;
     stockState.history = [];
     stockState.historyError = "";
+    stockState.mutation = createEmptyStockMutationState();
   }
 
   stockState.loading = true;
@@ -1525,6 +1545,7 @@ function openStockDetail(item) {
   stockState.history = [];
   stockState.historyError = "";
   stockState.historyLoading = true;
+  stockState.mutation = createEmptyStockMutationState();
   stockState.detailTransition = "enter";
   const requestId = stockState.historyRequestId + 1;
   stockState.historyRequestId = requestId;
@@ -1589,7 +1610,7 @@ function renderStockDetailView() {
   const close = document.createElement("button");
   close.className = "detail-close-button";
   close.type = "button";
-  close.disabled = stockState.detailTransition === "exit";
+  close.disabled = stockState.detailTransition === "exit" || stockState.mutation.submitting;
   close.textContent = "กลับ";
   close.addEventListener("click", closeStockDetail);
   header.append(titleWrap, close);
@@ -1605,15 +1626,410 @@ function renderStockDetailView() {
     createQuantityChip("หาเพิ่มได้", item.sourceableQtyEstimate),
   );
 
+  const mutationSection = renderStockMutationSection(item);
+
   const historyTitle = document.createElement("h3");
   historyTitle.className = "stock-history-title";
   historyTitle.textContent = "ประวัติ Stock";
 
   const historyBody = renderStockHistoryBody();
 
-  card.append(header, variant, quantities, historyTitle, historyBody);
+  card.append(header, variant, quantities, mutationSection, historyTitle, historyBody);
   view.append(card);
   return view;
+}
+
+function renderStockMutationSection(item) {
+  const section = document.createElement("section");
+  section.className = "stock-mutation-section";
+
+  if (!canUseStockMutationUi()) {
+    return section;
+  }
+
+  const mutation = stockState.mutation;
+  if (mutation.message) {
+    const message = document.createElement("p");
+    message.className = "product-status stock-mutation-message";
+    message.dataset.type = mutation.messageType;
+    message.textContent = mutation.message;
+    section.append(message);
+  }
+
+  if (mutation.errors.length > 0) {
+    const errorList = document.createElement("ul");
+    errorList.className = "stock-mutation-errors";
+    mutation.errors.forEach((error) => {
+      const entry = document.createElement("li");
+      entry.textContent = error;
+      errorList.append(entry);
+    });
+    section.append(errorList);
+  }
+
+  if (!mutation.mode) {
+    const actions = document.createElement("div");
+    actions.className = "stock-mutation-entry";
+    actions.append(
+      createStockMutationEntryButton("รับเข้า", "stock_in"),
+      createStockMutationEntryButton("ปรับยอด", "adjustment"),
+    );
+    section.append(actions);
+    return section;
+  }
+
+  section.append(mutation.step === "review"
+    ? renderStockMutationReview(item)
+    : renderStockMutationForm());
+  return section;
+}
+
+function createStockMutationEntryButton(label, mode) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "secondary-action-button stock-mutation-entry-button";
+  button.textContent = label;
+  button.disabled = stockState.detailTransition === "exit";
+  button.addEventListener("click", () => {
+    stockState.mutation = createEmptyStockMutationState();
+    stockState.mutation.mode = mode;
+    rerenderStockView();
+  });
+  return button;
+}
+
+function renderStockMutationForm() {
+  const mutation = stockState.mutation;
+  const form = document.createElement("form");
+  form.className = "stock-mutation-form";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    openStockMutationReview();
+  });
+
+  const title = document.createElement("h3");
+  title.textContent = mutation.mode === "stock_in" ? "รับเข้า Stock" : "ปรับยอด Stock";
+  form.append(title);
+
+  if (mutation.mode === "stock_in") {
+    form.append(createStockMutationNumberField("stock_quantity", "จำนวนรับเข้า", mutation.quantity, "1", (value) => {
+      stockState.mutation.quantity = value;
+    }));
+  } else {
+    form.append(createStockMutationNumberField("stock_counted", "จำนวนที่นับจริง", mutation.countedQty, "1", (value) => {
+      stockState.mutation.countedQty = value;
+    }));
+  }
+
+  form.append(createStockMutationTextAreaField("stock_reason", "เหตุผล", mutation.reason, (value) => {
+    stockState.mutation.reason = value;
+  }));
+
+  const actions = document.createElement("div");
+  actions.className = "stock-mutation-actions";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "secondary-action-button";
+  cancel.textContent = "ยกเลิก";
+  cancel.addEventListener("click", cancelStockMutation);
+  const review = document.createElement("button");
+  review.type = "submit";
+  review.className = "primary-action-button";
+  review.textContent = "ตรวจสอบ";
+  actions.append(cancel, review);
+  form.append(actions);
+
+  return form;
+}
+
+function renderStockMutationReview(item) {
+  const mutation = stockState.mutation;
+  const review = document.createElement("section");
+  review.className = "stock-mutation-review";
+
+  const title = document.createElement("h3");
+  title.textContent = mutation.mode === "stock_in" ? "ยืนยันรับเข้า Stock" : "ยืนยันปรับยอด Stock";
+  const currentQty = Number(item.onHandQty || 0);
+  const inputQty = mutation.mode === "stock_in" ? Number(mutation.quantity) : Number(mutation.countedQty);
+  const expectedAfter = mutation.mode === "stock_in" ? currentQty + inputQty : inputQty;
+  const previewDelta = expectedAfter - currentQty;
+
+  const summary = document.createElement("div");
+  summary.className = "review-summary stock-mutation-summary";
+  summary.append(
+    createReviewLine("SKU", item.skuCode || "-"),
+    createReviewLine("Stock ปัจจุบัน", formatNumber(currentQty)),
+  );
+
+  if (mutation.mode === "stock_in") {
+    summary.append(
+      createReviewLine("จำนวนรับเข้า", `+${formatNumber(inputQty)}`),
+      createReviewLine("Stock หลังรับเข้า", formatNumber(expectedAfter)),
+    );
+  } else {
+    summary.append(
+      createReviewLine("จำนวนที่นับจริง", formatNumber(inputQty)),
+      createReviewLine("ระบบจะปรับโดยประมาณ", formatSignedNumber(previewDelta)),
+      createReviewLine("Stock หลังปรับยอด", formatNumber(expectedAfter)),
+    );
+  }
+
+  summary.append(createReviewLine("เหตุผล", mutation.reason));
+  review.append(title, summary);
+
+  const actions = document.createElement("div");
+  actions.className = "stock-mutation-actions";
+  const back = document.createElement("button");
+  back.type = "button";
+  back.className = "secondary-action-button";
+  back.textContent = "กลับไปแก้ไข";
+  back.disabled = mutation.submitting;
+  back.addEventListener("click", () => {
+    stockState.mutation.step = "form";
+    stockState.mutation.errors = [];
+    rerenderStockView();
+  });
+  const submit = document.createElement("button");
+  submit.type = "button";
+  submit.className = "primary-action-button";
+  submit.textContent = mutation.submitting ? "กำลังบันทึก..." : "ยืนยัน";
+  submit.disabled = mutation.submitting;
+  submit.addEventListener("click", submitStockMutation);
+  actions.append(back, submit);
+  review.append(actions);
+
+  return review;
+}
+
+function createStockMutationNumberField(name, label, value, step, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "stock-mutation-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "number";
+  input.min = "0";
+  input.step = step;
+  input.value = value || "";
+  input.required = true;
+  input.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, input);
+  return wrapper;
+}
+
+function createStockMutationTextAreaField(name, label, value, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "stock-mutation-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const textarea = document.createElement("textarea");
+  textarea.name = name;
+  textarea.value = value || "";
+  textarea.required = true;
+  textarea.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, textarea);
+  return wrapper;
+}
+
+function openStockMutationReview() {
+  stockState.mutation.errors = validateStockMutationForm();
+  stockState.mutation.message = "";
+  if (stockState.mutation.errors.length > 0) {
+    rerenderStockView();
+    return;
+  }
+
+  stockState.mutation.step = "review";
+  rerenderStockView();
+}
+
+function cancelStockMutation() {
+  stockState.mutation = createEmptyStockMutationState();
+  rerenderStockView();
+}
+
+async function submitStockMutation() {
+  const item = stockState.detail;
+  const mutation = stockState.mutation;
+  if (!item || mutation.submitting) {
+    return;
+  }
+
+  mutation.errors = validateStockMutationForm();
+  mutation.message = "";
+  if (mutation.errors.length > 0) {
+    mutation.step = "form";
+    rerenderStockView();
+    return;
+  }
+
+  mutation.submitting = true;
+  rerenderStockView();
+
+  let mutationCommitted = false;
+  try {
+    const response = await callAuthApi("postInventoryTransaction", {
+      sessionToken: requireSessionToken(),
+      transaction: createStockMutationPayload(item, mutation),
+    });
+    requireSuccess(response);
+    mutationCommitted = true;
+    await refreshStockAfterMutation(item.skuCode);
+    stockState.mutation = createEmptyStockMutationState();
+    stockState.mutation.message = "อัปเดต Stock สำเร็จ";
+    stockState.mutation.messageType = "info";
+    rerenderStockView();
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+
+    if (mutationCommitted) {
+      stockState.mutation = createEmptyStockMutationState();
+      stockState.mutation.errors = ["บันทึก Stock สำเร็จแล้ว แต่โหลดข้อมูลล่าสุดไม่สำเร็จ กรุณาโหลด Stock ใหม่"];
+      rerenderStockView();
+      return;
+    }
+
+    stockState.mutation.submitting = false;
+    stockState.mutation.errors = [toStockMutationErrorMessage(error)];
+    stockState.mutation.step = "form";
+    rerenderStockView();
+  }
+}
+
+function createStockMutationPayload(item, mutation) {
+  const payload = {
+    skuCode: normalizeSkuCodeForUi(item.skuCode),
+    transaction_type: mutation.mode === "stock_in" ? "STOCK_IN" : "ADJUSTMENT",
+    reason: String(mutation.reason || "").trim(),
+  };
+
+  if (mutation.mode === "stock_in") {
+    payload.quantity = Number(mutation.quantity);
+  } else {
+    payload.counted_qty = Number(mutation.countedQty);
+  }
+
+  return payload;
+}
+
+async function refreshStockAfterMutation(skuCode) {
+  const token = requireSessionToken();
+  const normalizedSkuCode = normalizeSkuCodeForUi(skuCode);
+  const requestedPageSize = Math.min(50, Math.max(stockState.pageSize, stockState.items.length || stockState.pageSize));
+  const snapshot = await fetchStockRefreshSnapshot(token, stockState.query.trim(), requestedPageSize);
+  let refreshedItem = findStockItemBySkuCode(snapshot.items, normalizedSkuCode);
+
+  if (!refreshedItem) {
+    const fallback = await fetchStockRefreshSnapshot(token, normalizedSkuCode, stockState.pageSize);
+    refreshedItem = findStockItemBySkuCode(fallback.items, normalizedSkuCode);
+  }
+
+  stockState.items = snapshot.items;
+  stockState.page = Math.max(1, Math.ceil(stockState.items.length / stockState.pageSize));
+  stockState.hasMore = !!snapshot.hasMore;
+  stockState.error = "";
+
+  if (refreshedItem) {
+    stockState.detail = refreshedItem;
+  }
+
+  const historyResponse = await callAuthApi("getStockHistory", {
+    sessionToken: token,
+    skuCode: normalizedSkuCode,
+    page: 1,
+    pageSize: stockState.pageSize,
+  });
+  const historyData = requireSuccess(historyResponse);
+  stockState.history = Array.isArray(historyData.items) ? historyData.items : [];
+  stockState.historyError = "";
+  stockState.historyLoading = false;
+}
+
+async function fetchStockRefreshSnapshot(token, query, pageSize) {
+  const action = query ? "searchStock" : "listStock";
+  const payload = {
+    sessionToken: token,
+    page: 1,
+    pageSize,
+  };
+
+  if (query) {
+    payload.query = query;
+  }
+
+  const response = await callAuthApi(action, payload);
+  const data = requireSuccess(response);
+  return {
+    items: Array.isArray(data.items) ? data.items : [],
+    hasMore: !!data.hasMore,
+  };
+}
+
+function findStockItemBySkuCode(items, skuCode) {
+  const normalizedSkuCode = normalizeSkuCodeForUi(skuCode);
+  return (Array.isArray(items) ? items : []).find((item) => normalizeSkuCodeForUi(item.skuCode) === normalizedSkuCode) || null;
+}
+
+function validateStockMutationForm() {
+  const mutation = stockState.mutation;
+  const errors = [];
+
+  if (mutation.mode === "stock_in" && !isPositiveNumberInput(mutation.quantity)) {
+    errors.push("กรุณากรอกจำนวนรับเข้ามากกว่า 0");
+  }
+
+  if (mutation.mode === "adjustment" && !isNonNegativeNumberInput(mutation.countedQty)) {
+    errors.push("กรุณากรอกจำนวนที่นับจริงตั้งแต่ 0 ขึ้นไป");
+  }
+
+  if (!String(mutation.reason || "").trim()) {
+    errors.push("กรุณากรอกเหตุผล");
+  }
+
+  return errors;
+}
+
+function isPositiveNumberInput(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return false;
+  }
+
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0;
+}
+
+function toStockMutationErrorMessage(error) {
+  const code = error && (error.code || error.message);
+  if (code === "VALIDATION_ERROR") {
+    return "ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบจำนวนและเหตุผล";
+  }
+  if (code === "PERMISSION_DENIED") {
+    return "บัญชีนี้ไม่มีสิทธิ์ปรับสต๊อก";
+  }
+  if (code === "NOT_FOUND") {
+    return "ไม่พบ SKU นี้";
+  }
+  if (code === "NETWORK_RESPONSE_NOT_OK" || error instanceof TypeError) {
+    return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
+  }
+  return toThaiErrorMessage(error);
+}
+
+function createEmptyStockMutationState() {
+  return {
+    mode: "",
+    step: "form",
+    quantity: "",
+    countedQty: "",
+    reason: "",
+    errors: [],
+    submitting: false,
+    message: "",
+    messageType: "info",
+  };
 }
 
 function renderStockHistoryBody() {
@@ -1681,7 +2097,7 @@ function createStockHistoryItem(transaction) {
 }
 
 function closeStockDetail() {
-  if (stockState.detailTransition === "exit") {
+  if (stockState.detailTransition === "exit" || stockState.mutation.submitting) {
     return;
   }
 
@@ -1691,6 +2107,7 @@ function closeStockDetail() {
     stockState.history = [];
     stockState.historyError = "";
     stockState.historyLoading = false;
+    stockState.mutation = createEmptyStockMutationState();
     stockState.detailTransition = "";
     rerenderStockView();
     scheduleStockListScrollRestore();

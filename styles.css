@@ -155,7 +155,9 @@ p {
 .search-box,
 .product-search-label input,
 .create-field input,
-.create-field textarea {
+.create-field textarea,
+.stock-mutation-field input,
+.stock-mutation-field textarea {
   width: 100%;
   min-height: 46px;
   border: 1px solid #d6e0ea;
@@ -167,11 +169,14 @@ p {
 .login-form input,
 .product-search-label input,
 .create-field input,
-.create-field textarea {
+.create-field textarea,
+.stock-mutation-field input,
+.stock-mutation-field textarea {
   padding: 0 13px;
 }
 
-.create-field textarea {
+.create-field textarea,
+.stock-mutation-field textarea {
   min-height: 78px;
   padding-top: 10px;
   resize: vertical;
@@ -181,6 +186,8 @@ p {
 .product-search-label input:focus,
 .create-field input:focus,
 .create-field textarea:focus,
+.stock-mutation-field input:focus,
+.stock-mutation-field textarea:focus,
 .nav-item:focus-visible,
 .login-form button:focus-visible,
 .logout-button:focus-visible,
@@ -188,6 +195,7 @@ p {
 .load-more-button:focus-visible,
 .detail-close-button:focus-visible,
 .create-product-entry-button:focus-visible,
+.stock-mutation-entry-button:focus-visible,
 .primary-action-button:focus-visible,
 .secondary-action-button:focus-visible,
 .remove-sku-button:focus-visible {
@@ -545,6 +553,7 @@ p {
 .load-more-button,
 .detail-close-button,
 .create-product-entry-button,
+.stock-mutation-entry-button,
 .primary-action-button,
 .secondary-action-button,
 .remove-sku-button {
@@ -569,7 +578,9 @@ p {
   color: #22313f;
 }
 
-.remove-sku-button:disabled {
+.remove-sku-button:disabled,
+.primary-action-button:disabled,
+.secondary-action-button:disabled {
   cursor: not-allowed;
   opacity: 0.55;
 }
@@ -594,6 +605,69 @@ p {
 
 .stock-detail-quantities {
   margin-bottom: 2px;
+}
+
+.stock-mutation-section {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stock-mutation-entry,
+.stock-mutation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+}
+
+.stock-mutation-form,
+.stock-mutation-review {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #f7f9fb;
+}
+
+.stock-mutation-form h3,
+.stock-mutation-review h3 {
+  margin: 0;
+  color: #22313f;
+  font-size: 15px;
+  line-height: 1.35;
+}
+
+.stock-mutation-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: #263544;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.stock-mutation-message[data-type="info"] {
+  color: #1c8265;
+}
+
+.stock-mutation-errors {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 10px 10px 28px;
+  border: 1px solid #f0c6c2;
+  border-radius: 8px;
+  background: #fff7f6;
+  color: #8c1d18;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.stock-mutation-summary {
+  gap: 4px;
 }
 
 .stock-history-title {
