@@ -3411,6 +3411,10 @@ function stockCreatedByLabel(value) {
 function formatReferenceText(transaction) {
   const type = String(transaction.referenceType || "").trim();
   const id = String(transaction.referenceId || "").trim();
+  const display = String(transaction.referenceDisplay || "").trim();
+  if (type === "SHIPMENT") {
+    return display ? `Shipment · ${display}` : "Shipment";
+  }
   if (!type && !id) {
     return "";
   }
