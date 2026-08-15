@@ -2047,8 +2047,12 @@ function getSafeStockValidationDiagnosticCode(message) {
 
   const value = String(message || "").trim();
   const safeValidationMessages = {
+    "Request body is required.": "REQUEST_BODY_REQUIRED",
+    "actor user id is required.": "ACTOR_REQUIRED",
     "Transaction input is required.": "TRANSACTION_INPUT_REQUIRED",
     "transaction_type is not supported.": "UNSUPPORTED_TRANSACTION_TYPE",
+    "sku_id is required.": "LEGACY_SKU_ID_REQUIRED",
+    "sku_id is not valid.": "LEGACY_SKU_ID_NOT_VALID",
     "sku_id is not accepted from client.": "LEGACY_SKU_ID_REJECTED",
     "skuCode is required.": "MISSING_SKU_CODE",
     "skuCode was not found.": "SKU_NOT_FOUND",
