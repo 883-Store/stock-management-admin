@@ -511,27 +511,11 @@ async function loadProducts(options) {
   }
 }
 
-async function loadProductDetail(productId) {
-  productState.detail = null;
+function openProductDetail(product) {
+  productState.detail = product;
   productState.detailError = "";
-  productState.detailLoading = true;
+  productState.detailLoading = false;
   updateProductDom();
-
-  try {
-    const response = await callAuthApi("getProductDetail", {
-      sessionToken: requireSessionToken(),
-      productId,
-    });
-    productState.detail = requireSuccess(response);
-  } catch (error) {
-    if (handleProductAuthFailure(error)) {
-      return;
-    }
-    productState.detailError = toThaiErrorMessage(error);
-  } finally {
-    productState.detailLoading = false;
-    updateProductDom();
-  }
 }
 
 function renderCreateProductFlow() {
@@ -1054,7 +1038,7 @@ function createProductCard(product) {
   const button = document.createElement("button");
   button.className = "product-card-button";
   button.type = "button";
-  button.addEventListener("click", () => loadProductDetail(product.productId));
+  button.addEventListener("click", () => openProductDetail(product));
 
   const header = document.createElement("div");
   header.className = "product-card-header";
