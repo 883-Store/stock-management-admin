@@ -36,6 +36,8 @@ const productState = {
   detail: null,
   detailLoading: false,
   detailError: "",
+  detailTransition: "",
+  listScrollTop: 0,
   requestId: 0,
 };
 const productCreateState = {
@@ -414,7 +416,7 @@ function renderProductView() {
   if (productState.detail) {
     productDom = null;
     section.append(renderProductDetailView());
-    queueMicrotask(scrollProductContentToTop);
+    scheduleProductDetailTopScroll();
     return section;
   }
 
@@ -515,9 +517,11 @@ async function loadProducts(options) {
 }
 
 function openProductDetail(product) {
+  productState.listScrollTop = getProductScrollTop();
   productState.detail = product;
   productState.detailError = "";
   productState.detailLoading = false;
+  productState.detailTransition = "enter";
   rerenderProductView();
 }
 
@@ -1130,6 +1134,9 @@ function createQuantityChip(label, value) {
 function renderProductDetailView() {
   const view = document.createElement("section");
   view.className = "product-detail-view";
+  if (productState.detailTransition === "exit") {
+    view.classList.add("is-exiting");
+  }
 
   if (productState.detailLoading) {
     const loading = document.createElement("section");
@@ -1168,13 +1175,9 @@ function renderProductDetailView() {
   const close = document.createElement("button");
   close.className = "detail-close-button";
   close.type = "button";
+  close.disabled = productState.detailTransition === "exit";
   close.textContent = "กลับ";
-  close.addEventListener("click", () => {
-    productState.detail = null;
-    productState.detailError = "";
-    productState.detailLoading = false;
-    rerenderProductView();
-  });
+  close.addEventListener("click", closeProductDetail);
   header.append(titleWrap, close);
 
   const skuList = document.createElement("div");
@@ -1188,10 +1191,77 @@ function renderProductDetailView() {
   return view;
 }
 
-function scrollProductContentToTop() {
-  if (contentArea) {
-    contentArea.scrollTop = 0;
+function closeProductDetail() {
+  if (productState.detailTransition === "exit") {
+    return;
   }
+
+  const detailView = document.querySelector(".product-detail-view");
+  const finish = () => {
+    productState.detail = null;
+    productState.detailError = "";
+    productState.detailLoading = false;
+    productState.detailTransition = "";
+    rerenderProductView();
+    scheduleProductListScrollRestore();
+  };
+
+  if (!detailView || shouldReduceMotion()) {
+    finish();
+    return;
+  }
+
+  productState.detailTransition = "exit";
+  detailView.classList.add("is-exiting");
+  const backButton = detailView.querySelector(".detail-close-button");
+  if (backButton) {
+    backButton.disabled = true;
+  }
+  detailView.addEventListener("animationend", finish, { once: true });
+}
+
+function scheduleProductDetailTopScroll() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(getProductContentTopScroll());
+  });
+}
+
+function scheduleProductListScrollRestore() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(productState.listScrollTop);
+  });
+}
+
+function getProductScrollElement() {
+  return document.scrollingElement || document.documentElement;
+}
+
+function getProductScrollTop() {
+  const scroller = getProductScrollElement();
+  return scroller ? scroller.scrollTop : 0;
+}
+
+function setProductScrollTop(scrollTop) {
+  const scroller = getProductScrollElement();
+  if (scroller) {
+    scroller.scrollTop = Math.max(0, scrollTop || 0);
+  }
+}
+
+function getProductContentTopScroll() {
+  if (!contentArea) {
+    return 0;
+  }
+
+  const header = document.querySelector(".app-header");
+  const headerHeight = header ? header.getBoundingClientRect().height : 0;
+  return Math.max(0, contentArea.getBoundingClientRect().top + getProductScrollTop() - headerHeight);
+}
+
+function shouldReduceMotion() {
+  return typeof window !== "undefined" &&
+    typeof window.matchMedia === "function" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
 function appendUniqueProducts(existingItems, nextItems) {

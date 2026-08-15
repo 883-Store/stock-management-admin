@@ -389,10 +389,21 @@ p {
 
 .product-list,
 .sku-list,
+.product-detail-view,
 .product-detail-panel {
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.product-detail-view {
+  animation: product-detail-enter 200ms ease-out both;
+  will-change: opacity, transform;
+}
+
+.product-detail-view.is-exiting {
+  animation: product-detail-exit 180ms ease-in both;
+  pointer-events: none;
 }
 
 .product-card {
@@ -579,6 +590,38 @@ p {
 
 .detail-sku-list {
   gap: 8px;
+}
+
+@keyframes product-detail-enter {
+  from {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes product-detail-exit {
+  from {
+    opacity: 1;
+    transform: translateX(0);
+  }
+
+  to {
+    opacity: 0;
+    transform: translateX(24px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .product-detail-view,
+  .product-detail-view.is-exiting {
+    animation: none;
+    transform: none;
+  }
 }
 
 .create-product-flow,
