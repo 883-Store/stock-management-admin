@@ -592,6 +592,64 @@ p {
   gap: 8px;
 }
 
+.stock-detail-quantities {
+  margin-bottom: 2px;
+}
+
+.stock-history-title {
+  margin: 4px 0 0;
+  color: #22313f;
+  font-size: 16px;
+  line-height: 1.3;
+}
+
+.stock-history-list {
+  display: grid;
+  gap: 9px;
+  min-width: 0;
+}
+
+.stock-history-item {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #f7f9fb;
+}
+
+.stock-history-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.stock-history-top strong,
+.stock-history-quantity {
+  overflow-wrap: anywhere;
+}
+
+.stock-delta {
+  flex: 0 0 auto;
+  color: #11694f;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.stock-delta.negative {
+  color: #b3261e;
+}
+
+.stock-history-quantity {
+  margin-bottom: 0;
+  color: #22313f;
+  font-size: 18px;
+  font-weight: 900;
+}
+
 @keyframes product-detail-enter {
   from {
     opacity: 0;

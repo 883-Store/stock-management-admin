@@ -19,12 +19,15 @@ const config = typeof STOCK_ADMIN_CONFIG === "undefined"
   : STOCK_ADMIN_CONFIG;
 const SESSION_TOKEN_KEY = "stock-admin-test-session-token";
 const PRODUCT_PAGE_SIZE = 20;
+const STOCK_PAGE_SIZE = 20;
 const OWNER_ROLE = "OWNER";
 
 let currentUser = null;
 let activeViewName = "home";
 let productSearchTimer = null;
 let productDom = null;
+let stockSearchTimer = null;
+let stockDom = null;
 const productState = {
   initialized: false,
   query: "",
@@ -39,6 +42,24 @@ const productState = {
   detailTransition: "",
   listScrollTop: 0,
   requestId: 0,
+};
+const stockState = {
+  initialized: false,
+  query: "",
+  page: 1,
+  pageSize: STOCK_PAGE_SIZE,
+  hasMore: false,
+  loading: false,
+  error: "",
+  items: [],
+  detail: null,
+  history: [],
+  historyLoading: false,
+  historyError: "",
+  detailTransition: "",
+  listScrollTop: 0,
+  requestId: 0,
+  historyRequestId: 0,
 };
 const productCreateState = {
   mode: "list",
@@ -71,6 +92,8 @@ const views = {
     render: () => renderPlaceholder("เพิ่มเติม", "พื้นที่ตัวอย่างสำหรับเมนูเพิ่มเติม ยังไม่มีการตั้งค่าระบบ"),
   },
 };
+
+views.stock.render = renderStockView;
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -173,6 +196,10 @@ function setView(viewName) {
 
   if (activeViewName !== "products") {
     productDom = null;
+  }
+
+  if (activeViewName !== "stock") {
+    stockDom = null;
   }
 
   contentArea.innerHTML = "";
@@ -1274,6 +1301,498 @@ function appendUniqueProducts(existingItems, nextItems) {
     }
   });
   return merged;
+}
+
+function renderStockView() {
+  const section = document.createElement("section");
+  section.className = "product-view stock-view";
+
+  const toolbar = document.createElement("section");
+  toolbar.className = "product-toolbar stock-toolbar";
+
+  const intro = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = "สต๊อก";
+  const detail = document.createElement("p");
+  detail.className = "placeholder-text";
+  detail.textContent = "ดู Stock จริงและประวัติการเคลื่อนไหวจาก TEST Backend แบบอ่านอย่างเดียว";
+  intro.append(title, detail);
+
+  const searchLabel = document.createElement("label");
+  searchLabel.className = "product-search-label stock-search-label";
+  const searchText = document.createElement("span");
+  searchText.textContent = "ค้นหา Stock";
+  const searchInput = document.createElement("input");
+  searchInput.type = "search";
+  searchInput.autocomplete = "off";
+  searchInput.placeholder = "ชื่อสินค้า, SKU, รุ่น, สี, ขนาด";
+  searchInput.value = stockState.query;
+  searchInput.addEventListener("input", (event) => {
+    stockState.query = event.target.value;
+    clearTimeout(stockSearchTimer);
+    stockSearchTimer = setTimeout(() => {
+      loadStock({ reset: true });
+    }, 350);
+  });
+  searchLabel.append(searchText, searchInput);
+
+  toolbar.append(intro);
+
+  if (stockState.detail) {
+    stockDom = null;
+    section.append(renderStockDetailView());
+    scheduleStockDetailTopScroll();
+    return section;
+  }
+
+  toolbar.append(searchLabel);
+
+  const status = document.createElement("div");
+  status.className = "product-status stock-status";
+  status.setAttribute("aria-live", "polite");
+
+  const list = document.createElement("div");
+  list.className = "product-list stock-list";
+
+  const loadMoreButton = document.createElement("button");
+  loadMoreButton.className = "load-more-button";
+  loadMoreButton.type = "button";
+  loadMoreButton.textContent = "โหลดเพิ่มเติม";
+  loadMoreButton.addEventListener("click", () => {
+    if (stockState.loading || !stockState.hasMore) {
+      return;
+    }
+    stockState.page += 1;
+    loadStock({ reset: false });
+  });
+
+  stockDom = {
+    status,
+    list,
+    loadMoreButton,
+    searchInput,
+  };
+
+  section.append(toolbar, status, list, loadMoreButton);
+  updateStockDom();
+
+  if (!stockState.initialized) {
+    queueMicrotask(() => loadStock({ reset: true }));
+  }
+
+  return section;
+}
+
+async function loadStock(options) {
+  const reset = !!(options && options.reset);
+  const requestId = stockState.requestId + 1;
+  stockState.requestId = requestId;
+
+  if (reset) {
+    stockState.page = 1;
+    stockState.items = [];
+    stockState.hasMore = false;
+    stockState.detail = null;
+    stockState.history = [];
+    stockState.historyError = "";
+  }
+
+  stockState.loading = true;
+  stockState.error = "";
+  stockState.initialized = true;
+  updateStockDom();
+
+  try {
+    const token = requireSessionToken();
+    const action = stockState.query.trim() ? "searchStock" : "listStock";
+    const payload = {
+      sessionToken: token,
+      page: stockState.page,
+      pageSize: stockState.pageSize,
+    };
+
+    if (action === "searchStock") {
+      payload.query = stockState.query.trim();
+    }
+
+    const response = await callAuthApi(action, payload);
+    const data = requireSuccess(response);
+
+    if (requestId !== stockState.requestId) {
+      return;
+    }
+
+    const nextItems = Array.isArray(data.items) ? data.items : [];
+    stockState.items = reset ? nextItems : appendUniqueStockItems(stockState.items, nextItems);
+    stockState.hasMore = !!data.hasMore;
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+
+    if (!reset && stockState.page > 1) {
+      stockState.page -= 1;
+    }
+    stockState.error = toThaiErrorMessage(error);
+  } finally {
+    if (requestId === stockState.requestId) {
+      stockState.loading = false;
+      updateStockDom();
+    }
+  }
+}
+
+function updateStockDom() {
+  if (!stockDom || activeViewName !== "stock") {
+    return;
+  }
+
+  stockDom.status.textContent = "";
+  stockDom.status.dataset.type = "info";
+
+  clearElement(stockDom.list);
+  stockState.items.forEach((item) => {
+    stockDom.list.append(createStockCard(item));
+  });
+
+  if (stockState.loading && stockState.items.length === 0) {
+    stockDom.status.textContent = stockState.query.trim()
+      ? "กำลังค้นหา Stock..."
+      : "กำลังโหลด Stock...";
+  } else if (stockState.error) {
+    stockDom.status.textContent = stockState.error;
+    stockDom.status.dataset.type = "error";
+  } else if (!stockState.loading && stockState.items.length === 0) {
+    stockDom.status.textContent = stockState.query.trim()
+      ? "ไม่พบสินค้าที่ตรงกับคำค้นหา"
+      : "ยังไม่มีข้อมูล Stock";
+  } else if (stockState.loading) {
+    stockDom.status.textContent = "กำลังโหลดเพิ่มเติม...";
+  } else {
+    stockDom.status.textContent = stockState.query.trim()
+      ? "ผลการค้นหา Stock แบบอ่านอย่างเดียว"
+      : "รายการ Stock จาก TEST Backend";
+  }
+
+  stockDom.loadMoreButton.hidden = !stockState.hasMore;
+  stockDom.loadMoreButton.disabled = stockState.loading;
+}
+
+function createStockCard(item) {
+  const article = document.createElement("article");
+  article.className = "card product-card stock-card";
+
+  const button = document.createElement("button");
+  button.className = "product-card-button stock-card-button";
+  button.type = "button";
+  button.addEventListener("click", () => openStockDetail(item));
+
+  const header = document.createElement("div");
+  header.className = "product-card-header";
+
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = item.skuCode || "-";
+  const productName = document.createElement("p");
+  productName.className = "placeholder-text";
+  productName.textContent = item.productName || "ไม่ระบุชื่อสินค้า";
+  titleWrap.append(title, productName);
+
+  const status = document.createElement("span");
+  status.className = "status-pill";
+  status.textContent = item.status || "-";
+  header.append(titleWrap, status);
+
+  const variant = document.createElement("p");
+  variant.className = "placeholder-text";
+  variant.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
+
+  const quantities = document.createElement("div");
+  quantities.className = "quantity-row";
+  quantities.append(
+    createQuantityChip("Stock", item.onHandQty),
+    createQuantityChip("หาเพิ่มได้", item.sourceableQtyEstimate),
+  );
+
+  button.append(header, variant, quantities);
+  article.append(button);
+  return article;
+}
+
+function openStockDetail(item) {
+  stockState.listScrollTop = getProductScrollTop();
+  stockState.detail = item;
+  stockState.history = [];
+  stockState.historyError = "";
+  stockState.historyLoading = true;
+  stockState.detailTransition = "enter";
+  const requestId = stockState.historyRequestId + 1;
+  stockState.historyRequestId = requestId;
+  rerenderStockView();
+  loadStockHistory(item.skuCode, requestId);
+}
+
+async function loadStockHistory(skuCode, requestId) {
+  try {
+    const response = await callAuthApi("getStockHistory", {
+      sessionToken: requireSessionToken(),
+      skuCode,
+      page: 1,
+      pageSize: stockState.pageSize,
+    });
+    const data = requireSuccess(response);
+
+    if (requestId !== stockState.historyRequestId) {
+      return;
+    }
+
+    stockState.history = Array.isArray(data.items) ? data.items : [];
+  } catch (error) {
+    if (handleProductAuthFailure(error)) {
+      return;
+    }
+
+    stockState.historyError = toThaiErrorMessage(error);
+  } finally {
+    if (requestId === stockState.historyRequestId) {
+      stockState.historyLoading = false;
+      rerenderStockView();
+    }
+  }
+}
+
+function renderStockDetailView() {
+  const view = document.createElement("section");
+  view.className = "product-detail-view stock-detail-view";
+  if (stockState.detailTransition === "exit") {
+    view.classList.add("is-exiting");
+  }
+
+  const item = stockState.detail;
+  if (!item) {
+    return view;
+  }
+
+  const card = document.createElement("section");
+  card.className = "card product-detail-card stock-detail-card";
+
+  const header = document.createElement("div");
+  header.className = "product-detail-header";
+  const titleWrap = document.createElement("div");
+  const title = document.createElement("h2");
+  title.textContent = item.skuCode || "รายละเอียด Stock";
+  const meta = document.createElement("p");
+  meta.className = "placeholder-text";
+  meta.textContent = `${item.productName || "ไม่ระบุชื่อสินค้า"} · ${item.status || "-"}`;
+  titleWrap.append(title, meta);
+
+  const close = document.createElement("button");
+  close.className = "detail-close-button";
+  close.type = "button";
+  close.disabled = stockState.detailTransition === "exit";
+  close.textContent = "กลับ";
+  close.addEventListener("click", closeStockDetail);
+  header.append(titleWrap, close);
+
+  const variant = document.createElement("p");
+  variant.className = "placeholder-text";
+  variant.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
+
+  const quantities = document.createElement("div");
+  quantities.className = "quantity-row stock-detail-quantities";
+  quantities.append(
+    createQuantityChip("Stock", item.onHandQty),
+    createQuantityChip("หาเพิ่มได้", item.sourceableQtyEstimate),
+  );
+
+  const historyTitle = document.createElement("h3");
+  historyTitle.className = "stock-history-title";
+  historyTitle.textContent = "ประวัติ Stock";
+
+  const historyBody = renderStockHistoryBody();
+
+  card.append(header, variant, quantities, historyTitle, historyBody);
+  view.append(card);
+  return view;
+}
+
+function renderStockHistoryBody() {
+  if (stockState.historyLoading) {
+    const loading = document.createElement("p");
+    loading.className = "product-status";
+    loading.textContent = "กำลังโหลดประวัติ...";
+    return loading;
+  }
+
+  if (stockState.historyError) {
+    const error = document.createElement("p");
+    error.className = "product-status product-error";
+    error.textContent = stockState.historyError;
+    return error;
+  }
+
+  if (!stockState.history.length) {
+    const empty = document.createElement("p");
+    empty.className = "product-status";
+    empty.textContent = "ไม่มีประวัติ";
+    return empty;
+  }
+
+  const list = document.createElement("div");
+  list.className = "stock-history-list";
+  stockState.history.forEach((transaction) => {
+    list.append(createStockHistoryItem(transaction));
+  });
+  return list;
+}
+
+function createStockHistoryItem(transaction) {
+  const item = document.createElement("article");
+  item.className = "stock-history-item";
+
+  const top = document.createElement("div");
+  top.className = "stock-history-top";
+  const type = document.createElement("strong");
+  type.textContent = stockTransactionLabel(transaction.transactionType);
+  const delta = document.createElement("span");
+  delta.className = Number(transaction.quantityChange) < 0 ? "stock-delta negative" : "stock-delta";
+  delta.textContent = formatSignedNumber(transaction.quantityChange);
+  top.append(type, delta);
+
+  const quantity = document.createElement("p");
+  quantity.className = "stock-history-quantity";
+  quantity.textContent = `${formatNumber(transaction.quantityBefore)} → ${formatNumber(transaction.quantityAfter)}`;
+
+  const reason = document.createElement("p");
+  reason.className = "placeholder-text";
+  reason.textContent = transaction.reason || "ไม่ระบุเหตุผล";
+
+  const metaParts = [
+    formatDateTime(transaction.createdAt),
+    stockCreatedByLabel(transaction.createdBy),
+    formatReferenceText(transaction),
+  ].filter(Boolean);
+  const meta = document.createElement("p");
+  meta.className = "placeholder-text";
+  meta.textContent = metaParts.join(" · ");
+
+  item.append(top, quantity, reason, meta);
+  return item;
+}
+
+function closeStockDetail() {
+  if (stockState.detailTransition === "exit") {
+    return;
+  }
+
+  const detailView = document.querySelector(".stock-detail-view");
+  const finish = () => {
+    stockState.detail = null;
+    stockState.history = [];
+    stockState.historyError = "";
+    stockState.historyLoading = false;
+    stockState.detailTransition = "";
+    rerenderStockView();
+    scheduleStockListScrollRestore();
+  };
+
+  if (!detailView || shouldReduceMotion()) {
+    finish();
+    return;
+  }
+
+  stockState.detailTransition = "exit";
+  detailView.classList.add("is-exiting");
+  const backButton = detailView.querySelector(".detail-close-button");
+  if (backButton) {
+    backButton.disabled = true;
+  }
+  detailView.addEventListener("animationend", finish, { once: true });
+}
+
+function scheduleStockDetailTopScroll() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(getProductContentTopScroll());
+  });
+}
+
+function scheduleStockListScrollRestore() {
+  requestAnimationFrame(() => {
+    setProductScrollTop(stockState.listScrollTop);
+  });
+}
+
+function rerenderStockView() {
+  if (activeViewName === "stock" && currentUser) {
+    setView("stock");
+  }
+}
+
+function appendUniqueStockItems(existingItems, nextItems) {
+  const seen = new Set(existingItems.map((item) => normalizeSkuCodeForUi(item.skuCode)));
+  const merged = [...existingItems];
+  nextItems.forEach((item) => {
+    const skuCode = normalizeSkuCodeForUi(item.skuCode);
+    if (!seen.has(skuCode)) {
+      seen.add(skuCode);
+      merged.push(item);
+    }
+  });
+  return merged;
+}
+
+function formatVariantText(item) {
+  return [item.model, item.color, item.size].filter(Boolean).join(" / ");
+}
+
+function stockTransactionLabel(type) {
+  if (type === "OPENING_BALANCE") {
+    return "ยอดเริ่มต้น";
+  }
+  if (type === "STOCK_IN") {
+    return "รับเข้า";
+  }
+  if (type === "ADJUSTMENT") {
+    return "ปรับยอด";
+  }
+  return type || "-";
+}
+
+function formatSignedNumber(value) {
+  const number = Number(value || 0);
+  if (number > 0) {
+    return `+${formatNumber(number)}`;
+  }
+  return formatNumber(number);
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "";
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return new Intl.DateTimeFormat("th-TH", {
+    dateStyle: "short",
+    timeStyle: "short",
+  }).format(date);
+}
+
+function stockCreatedByLabel(value) {
+  return value === "AUTHENTICATED_USER" ? "ผู้ใช้ที่ยืนยันตัวตนแล้ว" : "";
+}
+
+function formatReferenceText(transaction) {
+  const type = String(transaction.referenceType || "").trim();
+  const id = String(transaction.referenceId || "").trim();
+  if (!type && !id) {
+    return "";
+  }
+  return [type, id].filter(Boolean).join(" ");
 }
 
 function requireSessionToken() {

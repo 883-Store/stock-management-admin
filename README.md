@@ -36,3 +36,8 @@ version that includes the latest Product routing in `backend/Code.gs`.
 Create Product UI is TEST-only and currently shown to OWNER accounts only. It
 requires a TEST Apps Script Web App deployment that includes the authenticated
 `createProduct` route.
+
+Stock list/search/detail/history UI is read-only and uses the authenticated
+Stock Read APIs. Before runtime testing it from GitHub Pages, deploy a new TEST
+Apps Script Web App version that includes `listStock`, `searchStock`, and
+`getStockHistory`.
