@@ -23,6 +23,7 @@ const STOCK_PAGE_SIZE = 20;
 const OWNER_ROLE = "OWNER";
 const ADMIN_ROLE = "ADMIN";
 const ADJUST_STOCK_PERMISSION = "ADJUST_STOCK";
+const STOCK_TEST_UI_BUILD = "3G-2F";
 
 let currentUser = null;
 let activeViewName = "home";
@@ -1620,6 +1621,8 @@ function renderStockDetailView() {
   variant.className = "placeholder-text";
   variant.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
 
+  const buildMarker = renderStockTestBuildMarker();
+
   const quantities = document.createElement("div");
   quantities.className = "quantity-row stock-detail-quantities";
   quantities.append(
@@ -1635,9 +1638,24 @@ function renderStockDetailView() {
 
   const historyBody = renderStockHistoryBody();
 
-  card.append(header, variant, quantities, mutationSection, historyTitle, historyBody);
+  card.append(header, variant);
+  if (buildMarker) {
+    card.append(buildMarker);
+  }
+  card.append(quantities, mutationSection, historyTitle, historyBody);
   view.append(card);
   return view;
+}
+
+function renderStockTestBuildMarker() {
+  if (config.ENVIRONMENT !== "TEST") {
+    return null;
+  }
+
+  const marker = document.createElement("p");
+  marker.className = "placeholder-text";
+  marker.textContent = `TEST UI build: ${STOCK_TEST_UI_BUILD}`;
+  return marker;
 }
 
 function renderStockMutationSection(item) {
