@@ -10,6 +10,10 @@ const viewTitle = document.querySelector("#viewTitle");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const logoutButton = document.querySelector("#logoutButton");
 const userChip = document.querySelector("#userChip");
+const environmentStrips = [...document.querySelectorAll(".test-strip")];
+const environmentBadge = document.querySelector(".test-badge");
+const loginCopy = document.querySelector(".login-copy");
+const mockNote = document.querySelector(".mock-note");
 
 const config = typeof STOCK_ADMIN_CONFIG === "undefined"
   ? window.STOCK_ADMIN_CONFIG || {
@@ -17,7 +21,11 @@ const config = typeof STOCK_ADMIN_CONFIG === "undefined"
     API_BASE_URL: document.documentElement.dataset.stockAdminApiBaseUrl,
   }
   : STOCK_ADMIN_CONFIG;
-const SESSION_TOKEN_KEY = "stock-admin-test-session-token";
+const SUPPORTED_ENVIRONMENTS = ["TEST", "PRODUCTION"];
+const KNOWN_TEST_API_BASE_URLS = [
+  "https://script.google.com/macros/s/AKfycbwJYxD1M-U4nWi3-KJxvHNVwuOPP3D8ou_r3jLrMRxfBD0WE45ugbv-GUrN7d0NcYQx_w/exec",
+];
+const SESSION_TOKEN_KEY = `stock-admin-${runtimeEnvironment().toLowerCase()}-session-token`;
 const PRODUCT_PAGE_SIZE = 20;
 const STOCK_PAGE_SIZE = 20;
 const SHIPMENT_PAGE_SIZE = 20;
@@ -112,7 +120,7 @@ const views = {
   },
   orders: {
     title: "ใบสั่งของ",
-    render: () => renderPlaceholder("ใบสั่งของ", "พื้นที่ตัวอย่างสำหรับเมนูใบสั่งของ ยังไม่มีข้อมูลหรือ logic จริง"),
+    render: renderShipmentView,
   },
   products: {
     title: "สินค้า",
@@ -120,16 +128,13 @@ const views = {
   },
   stock: {
     title: "สต๊อก",
-    render: () => renderPlaceholder("สต๊อก", "พื้นที่ตัวอย่างสำหรับเมนูสต๊อก ยังไม่มีการเชื่อมต่อคลังสินค้า"),
+    render: renderStockView,
   },
   more: {
     title: "เพิ่มเติม",
-    render: () => renderPlaceholder("เพิ่มเติม", "พื้นที่ตัวอย่างสำหรับเมนูเพิ่มเติม ยังไม่มีการตั้งค่าระบบ"),
+    render: () => renderPlaceholder("เพิ่มเติม", "ยังไม่มีเมนูเพิ่มเติม"),
   },
 };
-
-views.orders.render = renderShipmentView;
-views.stock.render = renderStockView;
 
 loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -189,7 +194,15 @@ logoutButton.addEventListener("click", async () => {
   }
 });
 
-restoreSession();
+applyEnvironmentUi();
+const startupConfigError = validateRuntimeConfig();
+if (startupConfigError) {
+  showLogin();
+  showLoginMessage(toThaiErrorMessage(new Error(startupConfigError)), "error");
+  loginButton.disabled = true;
+} else {
+  restoreSession();
+}
 
 async function restoreSession() {
   const token = getSessionToken();
@@ -247,20 +260,12 @@ function setView(viewName) {
 }
 
 async function callAuthApi(action, payload) {
+  const configError = validateRuntimeConfig();
+  if (configError) {
+    throw new Error(configError);
+  }
+
   const apiBaseUrl = String(config.API_BASE_URL || "").trim();
-
-  if (config.ENVIRONMENT !== "TEST") {
-    throw new Error("CONFIG_NOT_TEST");
-  }
-
-  if (!apiBaseUrl) {
-    throw new Error("API_URL_MISSING");
-  }
-
-  if (/production|prod/i.test(apiBaseUrl)) {
-    throw new Error("PRODUCTION_URL_BLOCKED");
-  }
-
   const response = await fetch(apiBaseUrl, {
     method: "POST",
     redirect: "follow",
@@ -295,7 +300,7 @@ function requireSuccess(response) {
 
 function enterApp(user) {
   currentUser = user;
-  userChip.textContent = user.displayName || user.username || "TEST";
+  userChip.textContent = user.displayName || user.username || runtimeEnvironment();
   loginScreen.classList.add("is-hidden");
   authLoading.classList.add("is-hidden");
   appShell.classList.remove("is-hidden");
@@ -317,7 +322,7 @@ function showAuthLoading() {
 
 function setLoginLoading(isLoading) {
   loginButton.disabled = isLoading;
-  loginButton.textContent = isLoading ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ TEST";
+  loginButton.textContent = isLoading ? "กำลังเข้าสู่ระบบ..." : `เข้าสู่ระบบ ${runtimeEnvironmentLabel()}`;
 }
 
 function setAppBusy(isBusy) {
@@ -344,11 +349,15 @@ function toThaiErrorMessage(error) {
   const code = error && (error.code || error.message);
 
   if (code === "API_URL_MISSING") {
-    return "ยังไม่ได้ตั้งค่า TEST Backend URL";
+    return "ยังไม่ได้ตั้งค่า Backend URL";
   }
 
-  if (code === "CONFIG_NOT_TEST" || code === "PRODUCTION_URL_BLOCKED") {
-    return "การตั้งค่า Backend ไม่ใช่ TEST จึงหยุดการเชื่อมต่อ";
+  if (code === "CONFIG_ENVIRONMENT_UNSUPPORTED" ||
+    code === "PRODUCTION_URL_BLOCKED" ||
+    code === "PRODUCTION_CONFIG_NOT_EXPLICIT" ||
+    code === "TEST_URL_BLOCKED" ||
+    code === "API_URL_INVALID") {
+    return "การตั้งค่า Backend ไม่ถูกต้องจึงหยุดการเชื่อมต่อ";
   }
 
   if (code === "INVALID_CREDENTIALS" || code === "VALIDATION_ERROR") {
@@ -360,7 +369,7 @@ function toThaiErrorMessage(error) {
   }
 
   if (code === "NOT_CONFIGURED") {
-    return "ระบบ TEST Backend ยังไม่พร้อมใช้งาน";
+    return "ระบบ Backend ยังไม่พร้อมใช้งาน";
   }
 
   if (code === "BACKEND_RESPONSE_INVALID") {
@@ -368,10 +377,77 @@ function toThaiErrorMessage(error) {
   }
 
   if (code === "NETWORK_RESPONSE_NOT_OK" || error instanceof TypeError) {
-    return "เชื่อมต่อ TEST Backend ไม่สำเร็จ กรุณาตรวจสอบเครือข่ายหรือ CORS";
+    return "เชื่อมต่อ Backend ไม่สำเร็จ กรุณาตรวจสอบเครือข่ายหรือ CORS";
   }
 
   return "ระบบขัดข้อง กรุณาลองใหม่อีกครั้ง";
+}
+
+function runtimeEnvironment() {
+  return String(config.ENVIRONMENT || "").trim().toUpperCase();
+}
+
+function runtimeEnvironmentLabel() {
+  const environment = runtimeEnvironment();
+  return SUPPORTED_ENVIRONMENTS.includes(environment) ? environment : "UNKNOWN";
+}
+
+function isKnownTestApiBaseUrl(apiBaseUrl) {
+  return KNOWN_TEST_API_BASE_URLS.includes(String(apiBaseUrl || "").trim());
+}
+
+function validateRuntimeConfig() {
+  const apiBaseUrl = String(config.API_BASE_URL || "").trim();
+  const environment = runtimeEnvironment();
+
+  if (!SUPPORTED_ENVIRONMENTS.includes(environment)) {
+    return "CONFIG_ENVIRONMENT_UNSUPPORTED";
+  }
+
+  if (!apiBaseUrl) {
+    return "API_URL_MISSING";
+  }
+
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[^/]+\/exec$/.test(apiBaseUrl)) {
+    return "API_URL_INVALID";
+  }
+
+  if (environment === "TEST" && /production|prod/i.test(apiBaseUrl)) {
+    return "PRODUCTION_URL_BLOCKED";
+  }
+
+  if (environment === "PRODUCTION" && config.EXPECTED_ENVIRONMENT !== "PRODUCTION") {
+    return "PRODUCTION_CONFIG_NOT_EXPLICIT";
+  }
+
+  if (environment === "PRODUCTION" && isKnownTestApiBaseUrl(apiBaseUrl)) {
+    return "TEST_URL_BLOCKED";
+  }
+
+  return "";
+}
+
+function applyEnvironmentUi() {
+  const label = runtimeEnvironmentLabel();
+  const environmentName = runtimeEnvironment() === "PRODUCTION" ? "ระบบใช้งานจริง" : "ระบบทดสอบ";
+  document.documentElement.dataset.stockAdminEnvironment = runtimeEnvironment();
+  environmentStrips.forEach((strip) => {
+    strip.textContent = environmentName;
+  });
+  if (environmentBadge) {
+    environmentBadge.textContent = label;
+    environmentBadge.classList.toggle("is-hidden", runtimeEnvironment() === "PRODUCTION");
+  }
+  if (loginCopy) {
+    loginCopy.textContent = "เข้าสู่ระบบด้วยบัญชีที่ได้รับอนุญาต";
+  }
+  if (mockNote) {
+    mockNote.textContent = runtimeEnvironment() === "PRODUCTION"
+      ? "กำลังใช้งานระบบจริง ข้อมูลในระบบนี้เป็นข้อมูลจริง"
+      : "กำลังใช้งานระบบทดสอบ ข้อมูลนี้ไม่ใช่ข้อมูลจริง";
+  }
+  loginButton.textContent = "เข้าสู่ระบบ";
+  appShell.setAttribute("aria-label", environmentName);
 }
 
 function renderHome() {
@@ -379,16 +455,16 @@ function renderHome() {
 
   const search = document.createElement("div");
   search.className = "search-box";
-  search.textContent = "ค้นหาแบบตัวอย่าง";
+  search.textContent = "เลือกงานที่ต้องการทำ";
   fragment.append(search);
 
   const shortcuts = document.createElement("section");
   shortcuts.className = "shortcut-grid";
   shortcuts.append(
-    createShortcut("รับเข้า", "Placeholder"),
-    createShortcut("จ่ายออก", "Placeholder"),
-    createShortcut("ตรวจนับ", "Placeholder"),
-    createShortcut("รายงาน", "Placeholder"),
+    createShortcut("รับเข้า", "ไปที่หน้าสต๊อก", "stock"),
+    createShortcut("จ่ายออก", "ไปที่หน้าใบสั่งของ", "orders"),
+    createShortcut("ตรวจนับ", "ไปที่หน้าสต๊อก", "stock"),
+    createShortcut("รายงาน", "ยังไม่เปิดใช้งาน"),
   );
   fragment.append(shortcuts);
 
@@ -396,7 +472,7 @@ function renderHome() {
   pending.className = "card";
   pending.innerHTML = `
     <h2>งานรอดำเนินการ</h2>
-    <p class="placeholder-text">โครงหน้าจอสำหรับรายการงาน ยังไม่มีข้อมูลจริง</p>
+    <p class="placeholder-text">ฟีเจอร์นี้ยังไม่เปิดใช้งาน</p>
   `;
   fragment.append(pending);
 
@@ -404,11 +480,7 @@ function renderHome() {
   summary.className = "card";
   summary.innerHTML = `
     <h2>สรุปภาพรวม</h2>
-    <div class="summary-row" aria-label="ข้อมูลตัวอย่าง">
-      <div class="summary-item"><strong>-</strong><span>คำสั่งซื้อ</span></div>
-      <div class="summary-item"><strong>-</strong><span>สินค้า</span></div>
-      <div class="summary-item"><strong>-</strong><span>สต๊อก</span></div>
-    </div>
+    <p class="placeholder-text">ยังไม่มีข้อมูลภาพรวม</p>
   `;
   fragment.append(summary);
 
@@ -427,7 +499,7 @@ function renderProductView() {
   title.textContent = "รายการสินค้า";
   const detail = document.createElement("p");
   detail.className = "placeholder-text";
-  detail.textContent = "ดูสินค้าและ SKU จาก TEST Backend แบบอ่านอย่างเดียว";
+  detail.textContent = "ดูสินค้าและ SKU จากระบบ Backend แบบอ่านอย่างเดียว";
   intro.append(title, detail);
 
   const actions = document.createElement("div");
@@ -1113,7 +1185,7 @@ function updateProductDom() {
   } else {
     productDom.status.textContent = productState.query.trim()
       ? "ผลการค้นหาแบบอ่านอย่างเดียว"
-      : "รายการสินค้าจาก TEST Backend";
+      : "รายการสินค้า";
   }
 
   productDom.loadMoreButton.hidden = !productState.hasMore;
@@ -1372,7 +1444,7 @@ function renderShipmentView() {
   title.textContent = "ใบสั่งของ";
   const detail = document.createElement("p");
   detail.className = "placeholder-text";
-  detail.textContent = "สร้างและติดตาม Shipment จาก TEST Backend โดยยังไม่ตัด Stock";
+  detail.textContent = "สร้างและติดตาม Shipment โดยยังไม่ตัด Stock จนกว่าจะ Dispatch";
   intro.append(title, detail);
 
   const actions = document.createElement("div");
@@ -2984,7 +3056,7 @@ function toShipmentErrorMessage(error) {
     return "ไม่พบ Shipment นี้";
   }
   if (code === "NETWORK_RESPONSE_NOT_OK" || error instanceof TypeError) {
-    return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
+    return "เชื่อมต่อ Backend ไม่สำเร็จ";
   }
   return toThaiErrorMessage(error);
 }
@@ -3028,7 +3100,7 @@ function renderStockView() {
   title.textContent = "สต๊อก";
   const detail = document.createElement("p");
   detail.className = "placeholder-text";
-  detail.textContent = "ดู Stock จริงและประวัติการเคลื่อนไหวจาก TEST Backend แบบอ่านอย่างเดียว";
+  detail.textContent = "ดู Stock จริงและประวัติการเคลื่อนไหวจากระบบ Backend แบบอ่านอย่างเดียว";
   intro.append(title, detail);
 
   const searchLabel = document.createElement("label");
@@ -3185,7 +3257,7 @@ function updateStockDom() {
   } else {
     stockDom.status.textContent = stockState.query.trim()
       ? "ผลการค้นหา Stock แบบอ่านอย่างเดียว"
-      : "รายการ Stock จาก TEST Backend";
+      : "รายการ Stock";
   }
 
   stockDom.loadMoreButton.hidden = !stockState.hasMore;
@@ -3707,7 +3779,7 @@ function toStockMutationErrorMessage(error) {
     return "ไม่พบ SKU นี้";
   }
   if (code === "NETWORK_RESPONSE_NOT_OK" || error instanceof TypeError) {
-    return "เชื่อมต่อ TEST Backend ไม่สำเร็จ";
+    return "เชื่อมต่อ Backend ไม่สำเร็จ";
   }
   return toThaiErrorMessage(error);
 }
@@ -3955,10 +4027,21 @@ function clearElement(element) {
   }
 }
 
-function createShortcut(title, detail) {
+function createShortcut(title, detail, viewName) {
   const item = document.createElement("article");
   item.className = "card shortcut";
   item.innerHTML = `<strong>${title}</strong><span class="placeholder-text">${detail}</span>`;
+  if (viewName) {
+    item.setAttribute("role", "button");
+    item.tabIndex = 0;
+    item.addEventListener("click", () => setView(viewName));
+    item.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        setView(viewName);
+      }
+    });
+  }
   return item;
 }
 

@@ -3,17 +3,17 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Stock Management Admin - TEST</title>
+    <title>ระบบจัดการสต๊อก</title>
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <main class="phone-frame">
       <section class="login-screen" id="loginScreen" aria-labelledby="loginTitle">
-        <div class="test-strip">TEST ENVIRONMENT</div>
+        <div class="test-strip"></div>
         <div class="login-card">
           <p class="eyebrow">ระบบหลังบ้าน</p>
-          <h1 id="loginTitle">Stock Management Admin</h1>
-          <p class="login-copy">เข้าสู่ระบบ TEST ด้วยบัญชีที่สร้างใน TEST Auth Backend</p>
+          <h1 id="loginTitle">ระบบจัดการสต๊อก</h1>
+          <p class="login-copy">เข้าสู่ระบบด้วยบัญชีที่ได้รับอนุญาต</p>
 
           <form id="loginForm" class="login-form">
             <label>
@@ -24,32 +24,32 @@
               <span>รหัสผ่าน</span>
               <input id="password" name="password" type="password" autocomplete="current-password" placeholder="กรอกรหัสผ่าน" required>
             </label>
-            <button id="loginButton" type="submit">เข้าสู่ระบบ TEST</button>
+            <button id="loginButton" type="submit">เข้าสู่ระบบ</button>
           </form>
           <p class="form-message" id="loginStatus" aria-live="polite"></p>
 
-          <p class="mock-note">TEST UI นี้เชื่อมต่อ TEST Auth Backend เท่านั้น และไม่ใช่ Production</p>
+          <p class="mock-note"></p>
         </div>
       </section>
 
       <section class="auth-loading is-hidden" id="authLoading" aria-live="polite">
-        <div class="test-strip">TEST ENVIRONMENT</div>
+        <div class="test-strip"></div>
         <div class="card">
           <h1>กำลังตรวจสอบเซสชัน</h1>
           <p class="placeholder-text">กรุณารอสักครู่</p>
         </div>
       </section>
 
-      <section class="app-shell is-hidden" id="appShell" aria-label="TEST app shell">
+      <section class="app-shell is-hidden" id="appShell" aria-label="app shell">
         <header class="app-header">
           <div>
-            <p class="eyebrow">Stock Management</p>
+            <p class="eyebrow">ระบบจัดการสต๊อก</p>
             <h1 id="viewTitle">หน้าแรก</h1>
           </div>
           <div class="header-actions">
             <span class="user-chip" id="userChip"></span>
             <button class="logout-button" id="logoutButton" type="button">ออก</button>
-            <span class="test-badge">TEST</span>
+            <span class="test-badge"></span>
           </div>
         </header>
 
