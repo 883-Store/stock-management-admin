@@ -629,6 +629,10 @@ p {
   min-width: 0;
 }
 
+.shipment-return-entry {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .stock-mutation-form,
 .stock-mutation-review {
   display: grid;
@@ -687,6 +691,10 @@ p {
 
 .stock-mutation-summary {
   gap: 4px;
+}
+
+.shipment-return-item-card .stock-mutation-field {
+  margin-top: 4px;
 }
 
 .stock-history-title {
