@@ -829,12 +829,11 @@ function renderSkuFormCard(sku, index) {
         sku.sourceable_qty_estimate = value;
       },
     ),
-    createNumberField(
+    createIntegerField(
       `initial_stock_qty_${index}`,
       "จำนวนเริ่มต้น",
       sku.initialStockQty,
       true,
-      "1",
       (value) => {
         sku.initialStockQty = value;
       },
@@ -947,6 +946,23 @@ function createNumberField(name, label, value, required, step, onInput) {
   input.type = "number";
   input.min = "0";
   input.step = step;
+  input.value = value || "";
+  input.required = !!required;
+  input.addEventListener("input", (event) => onInput(event.target.value));
+  wrapper.append(span, input);
+  return wrapper;
+}
+
+function createIntegerField(name, label, value, required, onInput) {
+  const wrapper = document.createElement("label");
+  wrapper.className = "create-field";
+  const span = document.createElement("span");
+  span.textContent = label;
+  const input = document.createElement("input");
+  input.name = name;
+  input.type = "text";
+  input.inputMode = "numeric";
+  input.pattern = "\\d*";
   input.value = value || "";
   input.required = !!required;
   input.addEventListener("input", (event) => onInput(event.target.value));
