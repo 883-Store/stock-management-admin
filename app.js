@@ -3904,6 +3904,9 @@ function formatReferenceText(transaction) {
   if (type === "SHIPMENT") {
     return display ? `Shipment · ${display}` : "Shipment";
   }
+  if (type === "SHIPMENT_RETURN") {
+    return display ? `คืนสินค้า · ${display}` : "คืนสินค้า";
+  }
   if (!type && !id) {
     return "";
   }
