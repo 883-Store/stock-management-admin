@@ -41,6 +41,7 @@ let productDom = null;
 let stockSearchTimer = null;
 let stockDom = null;
 let shipmentDom = null;
+let shipmentPickerDom = null;
 let shipmentPickerSearchTimer = null;
 const productState = {
   initialized: false,
@@ -1462,6 +1463,7 @@ function renderShipmentView() {
         return;
       }
       shipmentCreateState.mode = shipmentCreateState.mode === "list" ? "form" : "list";
+      shipmentPickerDom = null;
       shipmentCreateState.picker = createEmptyShipmentPickerState();
       shipmentCreateState.errors = [];
       shipmentCreateState.message = "";
@@ -2626,7 +2628,6 @@ function renderShipmentItemForm(item, index) {
 
 function renderShipmentSkuPicker() {
   const picker = shipmentCreateState.picker;
-  const existingSkuCodes = getShipmentCreateSkuCodeSet();
   const selectedCount = Object.keys(picker.selectedItems).length;
   const card = document.createElement("section");
   card.className = "shipment-picker-card";
@@ -2662,22 +2663,9 @@ function renderShipmentSkuPicker() {
   searchLabel.append(searchText, searchInput);
 
   const status = document.createElement("p");
-  status.className = picker.error ? "product-status product-error" : "product-status";
-  if (picker.error) {
-    status.textContent = picker.error;
-  } else if (picker.loading && picker.items.length === 0) {
-    status.textContent = "กำลังโหลดสินค้า...";
-  } else if (!picker.loading && picker.items.length === 0) {
-    status.textContent = picker.query.trim() ? "ไม่พบสินค้าที่ค้นหา" : "ยังไม่มีสินค้าให้เลือก";
-  } else {
-    status.textContent = picker.query.trim() ? "ผลการค้นหา" : "รายการสินค้า";
-  }
 
   const list = document.createElement("div");
   list.className = "shipment-picker-list";
-  picker.items.forEach((item) => {
-    list.append(renderShipmentSkuPickerItem(item, existingSkuCodes));
-  });
 
   const footer = document.createElement("div");
   footer.className = "shipment-picker-footer";
@@ -2689,20 +2677,24 @@ function renderShipmentSkuPicker() {
   const loadMore = document.createElement("button");
   loadMore.type = "button";
   loadMore.className = "secondary-action-button";
-  loadMore.textContent = picker.loading ? "กำลังโหลด..." : "โหลดเพิ่มเติม";
-  loadMore.hidden = !picker.hasMore;
-  loadMore.disabled = picker.loading;
   loadMore.addEventListener("click", loadMoreShipmentSkuPickerItems);
   const addSelected = document.createElement("button");
   addSelected.type = "button";
   addSelected.className = "primary-action-button";
   addSelected.textContent = "เพิ่มรายการที่เลือก";
-  addSelected.disabled = selectedCount === 0;
   addSelected.addEventListener("click", addSelectedShipmentSkuPickerItems);
   actions.append(loadMore, addSelected);
   footer.append(count, actions);
 
   card.append(header, searchLabel, status, list, footer);
+  shipmentPickerDom = {
+    status,
+    list,
+    count,
+    loadMore,
+    addSelected,
+  };
+  updateShipmentSkuPickerDom();
   return card;
 }
 
@@ -2747,6 +2739,37 @@ function renderShipmentSkuPickerItem(item, existingSkuCodes) {
   return row;
 }
 
+function updateShipmentSkuPickerDom() {
+  const picker = shipmentCreateState.picker;
+  if (!shipmentPickerDom || activeViewName !== "orders" || !picker.open) {
+    return;
+  }
+
+  const selectedCount = Object.keys(picker.selectedItems).length;
+  shipmentPickerDom.status.className = picker.error ? "product-status product-error" : "product-status";
+  if (picker.error) {
+    shipmentPickerDom.status.textContent = picker.error;
+  } else if (picker.loading && picker.items.length === 0) {
+    shipmentPickerDom.status.textContent = "กำลังโหลดสินค้า...";
+  } else if (!picker.loading && picker.items.length === 0) {
+    shipmentPickerDom.status.textContent = picker.query.trim() ? "ไม่พบสินค้าที่ค้นหา" : "ยังไม่มีสินค้าให้เลือก";
+  } else {
+    shipmentPickerDom.status.textContent = picker.query.trim() ? "ผลการค้นหา" : "รายการสินค้า";
+  }
+
+  const existingSkuCodes = getShipmentCreateSkuCodeSet();
+  clearElement(shipmentPickerDom.list);
+  picker.items.forEach((item) => {
+    shipmentPickerDom.list.append(renderShipmentSkuPickerItem(item, existingSkuCodes));
+  });
+
+  shipmentPickerDom.count.textContent = `เลือกแล้ว ${selectedCount} รายการ`;
+  shipmentPickerDom.loadMore.textContent = picker.loading ? "กำลังโหลด..." : "โหลดเพิ่มเติม";
+  shipmentPickerDom.loadMore.hidden = !picker.hasMore;
+  shipmentPickerDom.loadMore.disabled = picker.loading;
+  shipmentPickerDom.addSelected.disabled = selectedCount === 0;
+}
+
 function openShipmentSkuPicker() {
   shipmentCreateState.picker = createEmptyShipmentPickerState();
   shipmentCreateState.picker.open = true;
@@ -2759,6 +2782,7 @@ function closeShipmentSkuPicker() {
     window.clearTimeout(shipmentPickerSearchTimer);
     shipmentPickerSearchTimer = null;
   }
+  shipmentPickerDom = null;
   shipmentCreateState.picker = createEmptyShipmentPickerState();
   rerenderShipmentView();
 }
@@ -2789,7 +2813,7 @@ async function loadShipmentSkuPickerItems({ reset }) {
   }
   picker.loading = true;
   picker.error = "";
-  rerenderShipmentView();
+  updateShipmentSkuPickerDom();
 
   try {
     const action = picker.query.trim() ? "searchStock" : "listStock";
@@ -2827,7 +2851,7 @@ async function loadShipmentSkuPickerItems({ reset }) {
   } finally {
     if (requestId === shipmentCreateState.picker.requestId && shipmentCreateState.picker.open) {
       shipmentCreateState.picker.loading = false;
-      rerenderShipmentView();
+      updateShipmentSkuPickerDom();
     }
   }
 }
@@ -2852,7 +2876,7 @@ function toggleShipmentSkuPickerSelection(item, shouldSelect) {
   } else {
     delete shipmentCreateState.picker.selectedItems[normalizedSkuCode];
   }
-  rerenderShipmentView();
+  updateShipmentSkuPickerDom();
 }
 
 function addSelectedShipmentSkuPickerItems() {
@@ -3135,6 +3159,7 @@ function resetShipmentCreateState() {
     window.clearTimeout(shipmentPickerSearchTimer);
     shipmentPickerSearchTimer = null;
   }
+  shipmentPickerDom = null;
   shipmentCreateState.mode = "list";
   shipmentCreateState.form = createEmptyShipmentForm();
   shipmentCreateState.picker = createEmptyShipmentPickerState();
