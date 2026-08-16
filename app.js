@@ -721,7 +721,7 @@ function renderCreateProductForm() {
   title.textContent = "เพิ่มสินค้า";
   const note = document.createElement("p");
   note.className = "placeholder-text";
-  note.textContent = "ระบบจะสร้าง Stock เริ่มต้นเป็น 0 อัตโนมัติ และไม่รับ Opening Balance ในขั้นตอนนี้";
+  note.textContent = "กรอกข้อมูลสินค้าและจำนวนเริ่มต้นของแต่ละ SKU";
   form.append(title, note);
 
   form.append(
@@ -829,11 +829,21 @@ function renderSkuFormCard(sku, index) {
         sku.sourceable_qty_estimate = value;
       },
     ),
+    createNumberField(
+      `initial_stock_qty_${index}`,
+      "จำนวนเริ่มต้น",
+      sku.initialStockQty,
+      true,
+      "1",
+      (value) => {
+        sku.initialStockQty = value;
+      },
+    ),
   );
 
   const stockNote = document.createElement("p");
   stockNote.className = "placeholder-text";
-  stockNote.textContent = "Stock เริ่มต้น = 0";
+  stockNote.textContent = "จำนวนสินค้าที่มีอยู่จริงตอนเริ่มสร้าง SKU นี้";
   card.append(stockNote);
   return card;
 }
@@ -846,7 +856,7 @@ function renderCreateProductReview() {
   title.textContent = "ยืนยันการเพิ่มสินค้า";
   const note = document.createElement("p");
   note.className = "placeholder-text";
-  note.textContent = "กรุณาตรวจสอบก่อนบันทึก Stock เริ่มต้นจะเป็น 0 และแก้ไข Stock ไม่ได้ในขั้นตอนนี้";
+  note.textContent = "จำนวนเริ่มต้นที่มากกว่า 0 จะถูกบันทึกเป็นยอดสต๊อกเริ่มต้น";
   review.append(title, note);
 
   const productSummary = document.createElement("div");
@@ -869,7 +879,7 @@ function renderCreateProductReview() {
       createReviewLine("ต้นทุน", formatBaht(sku.cost_price)),
       createReviewLine("ราคาขาย", formatBaht(sku.sale_price)),
       createReviewLine("หาเพิ่มได้ประมาณ", formatNumber(parseSourceableForPayload(sku.sourceable_qty_estimate))),
-      createReviewLine("Stock เริ่มต้น", "0"),
+      createReviewLine("Stock เริ่มต้น", formatNumber(parseInitialStockForPayload(sku.initialStockQty))),
     );
     skuList.append(card);
   });
@@ -1029,6 +1039,10 @@ function validateCreateProductForm() {
     if (!isNonNegativeIntegerInput(sku.sourceable_qty_estimate || "0")) {
       errors.push(`${label}: หาเพิ่มได้ประมาณต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป`);
     }
+
+    if (!isRequiredNonNegativeIntegerInput(sku.initialStockQty)) {
+      errors.push(`${label}: จำนวนเริ่มต้นต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป`);
+    }
   });
 
   return errors;
@@ -1047,6 +1061,7 @@ function createProductPayloadFromForm() {
       cost_price: Number(sku.cost_price),
       sale_price: Number(sku.sale_price),
       sourceable_qty_estimate: parseSourceableForPayload(sku.sourceable_qty_estimate),
+      initialStockQty: parseInitialStockForPayload(sku.initialStockQty),
     })),
   };
 }
@@ -1080,6 +1095,7 @@ function createEmptySkuForm() {
     cost_price: "",
     sale_price: "",
     sourceable_qty_estimate: "",
+    initialStockQty: "0",
   };
 }
 
@@ -1140,11 +1156,27 @@ function isNonNegativeIntegerInput(value) {
   return Number.isFinite(parsed) && parsed >= 0 && Math.floor(parsed) === parsed;
 }
 
+function isRequiredNonNegativeIntegerInput(value) {
+  if (value === "" || value === null || typeof value === "undefined") {
+    return false;
+  }
+
+  if (typeof value === "string") {
+    return /^\d+$/.test(value.trim());
+  }
+
+  return isNonNegativeIntegerInput(value);
+}
+
 function parseSourceableForPayload(value) {
   if (value === "" || value === null || typeof value === "undefined") {
     return 0;
   }
   return Number(value);
+}
+
+function parseInitialStockForPayload(value) {
+  return Number(String(value).trim());
 }
 
 function toCreateProductErrorMessage(error) {
