@@ -819,6 +819,15 @@ function renderSkuFormCard(sku, index) {
     createNumberField(`sale_price_${index}`, "ราคาขาย", sku.sale_price, true, "0.01", (value) => {
       sku.sale_price = value;
     }),
+    createIntegerField(
+      `initial_stock_qty_${index}`,
+      "จำนวน",
+      sku.initialStockQty,
+      true,
+      (value) => {
+        sku.initialStockQty = value;
+      },
+    ),
     createNumberField(
       `sourceable_qty_estimate_${index}`,
       "หาเพิ่มได้ประมาณ",
@@ -827,15 +836,6 @@ function renderSkuFormCard(sku, index) {
       "1",
       (value) => {
         sku.sourceable_qty_estimate = value;
-      },
-    ),
-    createIntegerField(
-      `initial_stock_qty_${index}`,
-      "จำนวนเริ่มต้น",
-      sku.initialStockQty,
-      true,
-      (value) => {
-        sku.initialStockQty = value;
       },
     ),
   );
