@@ -725,6 +725,9 @@ function renderCreateProductForm() {
   form.append(title, note);
 
   form.append(
+    createTextField("product_code", "รหัสสินค้า", productCreateState.form.product_code, true, (value) => {
+      productCreateState.form.product_code = value;
+    }),
     createTextField("product_name", "ชื่อสินค้า", productCreateState.form.product_name, true, (value) => {
       productCreateState.form.product_name = value;
     }),
@@ -861,6 +864,7 @@ function renderCreateProductReview() {
   const productSummary = document.createElement("div");
   productSummary.className = "review-summary";
   productSummary.append(
+    createReviewLine("รหัสสินค้า", normalizeProductCodeForUi(productCreateState.form.product_code)),
     createReviewLine("ชื่อสินค้า", productCreateState.form.product_name),
     createReviewLine("หมวดหมู่", productCreateState.form.category || "-"),
     createReviewLine("จำนวน SKU", productCreateState.form.skus.length),
@@ -1025,6 +1029,10 @@ async function submitCreateProduct() {
 function validateCreateProductForm() {
   const errors = [];
   const form = productCreateState.form;
+  if (!normalizeProductCodeForUi(form.product_code)) {
+    errors.push("กรุณากรอกรหัสสินค้า");
+  }
+
   if (!String(form.product_name || "").trim()) {
     errors.push("กรุณากรอกชื่อสินค้า");
   }
@@ -1066,6 +1074,7 @@ function validateCreateProductForm() {
 
 function createProductPayloadFromForm() {
   return {
+    product_code: normalizeProductCodeForUi(productCreateState.form.product_code),
     product_name: String(productCreateState.form.product_name || "").trim(),
     category: String(productCreateState.form.category || "").trim(),
     description: String(productCreateState.form.description || "").trim(),
@@ -1095,6 +1104,7 @@ function createReviewLine(label, value) {
 
 function createEmptyProductForm() {
   return {
+    product_code: "",
     product_name: "",
     category: "",
     description: "",
@@ -1151,6 +1161,10 @@ function canUseStockMutationUi() {
 }
 
 function normalizeSkuCodeForUi(value) {
+  return String(value || "").trim().toUpperCase();
+}
+
+function normalizeProductCodeForUi(value) {
   return String(value || "").trim().toUpperCase();
 }
 
@@ -1257,11 +1271,17 @@ function createProductCard(product) {
   header.className = "product-card-header";
 
   const titleWrap = document.createElement("div");
+  const code = document.createElement("p");
+  code.className = "placeholder-text";
+  code.textContent = product.productCode || "";
   const title = document.createElement("h2");
   title.textContent = product.productName || "ไม่ระบุชื่อสินค้า";
   const category = document.createElement("p");
   category.className = "placeholder-text";
   category.textContent = product.category || "ไม่ระบุหมวดหมู่";
+  if (product.productCode) {
+    titleWrap.append(code);
+  }
   titleWrap.append(title, category);
 
   const status = document.createElement("span");
@@ -1372,11 +1392,17 @@ function renderProductDetailView() {
   const header = document.createElement("div");
   header.className = "product-detail-header";
   const titleWrap = document.createElement("div");
+  const code = document.createElement("p");
+  code.className = "placeholder-text";
+  code.textContent = product.productCode || "";
   const title = document.createElement("h2");
   title.textContent = product.productName || "รายละเอียดสินค้า";
   const meta = document.createElement("p");
   meta.className = "placeholder-text";
   meta.textContent = `${product.category || "ไม่ระบุหมวดหมู่"} · ${product.status || "-"}`;
+  if (product.productCode) {
+    titleWrap.append(code);
+  }
   titleWrap.append(title, meta);
 
   const close = document.createElement("button");
