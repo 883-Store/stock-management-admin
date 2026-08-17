@@ -502,12 +502,31 @@ div.shared-product-body {
   min-width: 0;
 }
 
+.shared-product-title-top {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  margin-bottom: 4px;
+}
+
 .shared-product-code {
-  margin: 0 0 4px;
+  margin: 0;
   color: #236c87;
   font-size: 12px;
   font-weight: 900;
   overflow-wrap: anywhere;
+}
+
+.shared-product-header-price {
+  margin: 0;
+  color: #1c8265;
+  font-size: 14px;
+  font-weight: 900;
+  line-height: 1.25;
+  text-align: right;
+  white-space: nowrap;
 }
 
 .shared-product-name {
@@ -555,18 +574,13 @@ div.shared-product-body {
   font-weight: 800;
 }
 
-.shared-product-price {
-  margin: 0;
-  color: #1c8265;
-  font-size: 13px;
-  font-weight: 900;
-  overflow-wrap: anywhere;
-}
-
 .shared-product-size-table {
   display: grid;
-  gap: 4px;
+  gap: 0;
   min-width: 0;
+  padding: 10px;
+  border-radius: 8px;
+  background: #f3f6f9;
 }
 
 .shared-product-size-row {
@@ -575,14 +589,11 @@ div.shared-product-body {
   gap: 8px;
   align-items: center;
   min-width: 0;
-  padding: 8px 0;
+  min-height: 36px;
+  padding: 7px 0;
   border-top: 1px solid #e7edf3;
   color: #22313f;
   text-align: left;
-}
-
-.shared-product-size-row.has-action {
-  grid-template-columns: minmax(72px, 1fr) minmax(48px, auto) minmax(58px, auto) 18px;
 }
 
 .shared-product-size-row span,
@@ -619,20 +630,16 @@ div.shared-product-body {
 .shared-product-size-row.is-clickable {
   width: 100%;
   min-height: 44px;
-  padding: 8px;
-  border: 1px solid #e2e9f0;
-  border-radius: 8px;
-  background: #ffffff;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  background: transparent;
+  font: inherit;
   cursor: pointer;
 }
 
 .shared-product-size-row.is-clickable:active {
-  background: #eef5f8;
-}
-
-.shared-product-row-arrow {
-  color: #7a8a99;
-  text-align: right;
+  background: #e8eff5;
 }
 
 .status-pill {

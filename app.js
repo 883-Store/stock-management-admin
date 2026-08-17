@@ -2176,11 +2176,14 @@ function createSharedProductCard(product, options) {
     body.addEventListener("click", settings.onProductClick);
   }
 
+  const skus = Array.isArray(product && product.skus) ? product.skus : [];
   const header = document.createElement("div");
   header.className = "shared-product-header";
-  header.append(createSharedProductImage(product), createSharedProductTitle(product));
+  header.append(
+    createSharedProductImage(product),
+    createSharedProductTitle(product, skus.length > 1 ? formatSkuPriceRange(skus) : ""),
+  );
 
-  const skus = Array.isArray(product && product.skus) ? product.skus : [];
   const content = skus.length <= 1
     ? createSharedSingleSkuContent(product, skus[0] || null, settings)
     : createSharedMultiSkuContent(product, skus, settings);
@@ -2210,15 +2213,27 @@ function createSharedProductImage(product) {
   return slot;
 }
 
-function createSharedProductTitle(product) {
+function createSharedProductTitle(product, priceText) {
   const titleWrap = document.createElement("div");
   titleWrap.className = "shared-product-title";
 
-  if (product && product.productCode) {
+  if ((product && product.productCode) || priceText) {
+    const top = document.createElement("div");
+    top.className = "shared-product-title-top";
+
     const code = document.createElement("p");
     code.className = "shared-product-code";
-    code.textContent = product.productCode;
-    titleWrap.append(code);
+    code.textContent = product && product.productCode ? product.productCode : "";
+    top.append(code);
+
+    if (priceText) {
+      const price = document.createElement("p");
+      price.className = "shared-product-header-price";
+      price.textContent = priceText;
+      top.append(price);
+    }
+
+    titleWrap.append(top);
   }
 
   const title = document.createElement("h2");
@@ -2242,7 +2257,7 @@ function createSharedSingleSkuContent(product, sku, settings) {
   const metrics = document.createElement("div");
   metrics.className = "shared-product-metrics";
   metrics.append(
-    createSharedMetric("ราคาขาย", sku ? formatBaht(sku.salePrice) : "-"),
+    createSharedMetric("ราคาขาย", sku ? formatSharedCardPrice(sku.salePrice) : "-"),
     createSharedMetric("จำนวน", sku ? formatNumber(sku.onHandQty) : "0"),
     createSharedMetric("เพิ่มได้", sku ? formatNumber(sku.sourceableQtyEstimate) : "0"),
   );
@@ -2255,14 +2270,9 @@ function createSharedMultiSkuContent(product, skus, settings) {
   const content = document.createElement("div");
   content.className = "shared-product-content";
 
-  const price = document.createElement("p");
-  price.className = "shared-product-price";
-  price.textContent = `ราคาขาย ${formatSkuPriceRange(skus)}`;
-  content.append(price);
-
   const table = document.createElement("div");
   table.className = "shared-product-size-table";
-  table.append(createSharedSkuHeader(settings.mode));
+  table.append(createSharedSkuHeader());
   skus.forEach((sku) => {
     table.append(createSharedSkuRow(product, sku, settings));
   });
@@ -2281,24 +2291,21 @@ function createSharedMetric(label, value) {
   return item;
 }
 
-function createSharedSkuHeader(mode) {
+function createSharedSkuHeader() {
   const row = document.createElement("div");
-  row.className = `shared-product-size-row shared-product-size-head ${mode === "stock" ? "has-action" : ""}`.trim();
+  row.className = "shared-product-size-row shared-product-size-head";
   ["ไซซ์", "จำนวน", "เพิ่มได้"].forEach((label) => {
     const cell = document.createElement("span");
     cell.textContent = label;
     row.append(cell);
   });
-  if (mode === "stock") {
-    row.append(document.createElement("span"));
-  }
   return row;
 }
 
 function createSharedSkuRow(product, sku, settings) {
   const isStock = settings.mode === "stock" && typeof settings.onSkuClick === "function";
   const row = document.createElement(isStock ? "button" : "div");
-  row.className = `shared-product-size-row ${isStock ? "is-clickable has-action" : ""}`.trim();
+  row.className = `shared-product-size-row ${isStock ? "is-clickable" : ""}`.trim();
   if (isStock) {
     row.type = "button";
     row.addEventListener("click", () => settings.onSkuClick(product, sku));
@@ -2311,14 +2318,6 @@ function createSharedSkuRow(product, sku, settings) {
   const sourceable = document.createElement("span");
   sourceable.textContent = formatNumber(sku.sourceableQtyEstimate);
   row.append(size, onHand, sourceable);
-
-  if (isStock) {
-    const arrow = document.createElement("span");
-    arrow.className = "shared-product-row-arrow";
-    arrow.setAttribute("aria-hidden", "true");
-    arrow.textContent = ">";
-    row.append(arrow);
-  }
 
   return row;
 }
@@ -2340,7 +2339,20 @@ function formatSkuPriceRange(skus) {
 
   const min = Math.min(...prices);
   const max = Math.max(...prices);
-  return min === max ? formatBaht(min) : `${formatBaht(min)} - ${formatBaht(max)}`;
+  return min === max
+    ? formatSharedCardPrice(min)
+    : `${formatSharedCardPrice(min)} – ${formatSharedCardPrice(max)}`;
+}
+
+function formatSharedCardPrice(value) {
+  const number = Number(value);
+  if (!Number.isFinite(number)) {
+    return "-";
+  }
+
+  return `${new Intl.NumberFormat("th-TH", {
+    maximumFractionDigits: 2,
+  }).format(number)}.-`;
 }
 
 function createMetric(label, value) {
