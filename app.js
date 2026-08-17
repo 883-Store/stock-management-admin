@@ -1317,6 +1317,9 @@ function renderProductEditForm() {
     event.preventDefault();
     openProductEditReview();
   });
+  form.addEventListener("input", () => {
+    updateProductEditReviewButtonState(form);
+  });
 
   const header = document.createElement("div");
   header.className = "product-edit-title-row";
@@ -1351,12 +1354,23 @@ function renderProductEditForm() {
   const review = document.createElement("button");
   review.type = "submit";
   review.className = "primary-action-button";
-  review.textContent = productEditHasAnyChanges() ? "ตรวจสอบก่อนบันทึก" : "ไม่มีการเปลี่ยนแปลง";
-  review.disabled = productEditState.submitting || !productEditHasAnyChanges();
+  review.classList.add("product-edit-review-button");
+  updateProductEditReviewButtonState(form, review);
   actions.append(cancel, review);
   form.append(actions);
 
   return form;
+}
+
+function updateProductEditReviewButtonState(form, button) {
+  const reviewButton = button || (form ? form.querySelector(".product-edit-review-button") : null);
+  if (!reviewButton) {
+    return;
+  }
+
+  const hasChanges = productEditHasAnyChanges();
+  reviewButton.textContent = hasChanges ? "ตรวจสอบก่อนบันทึก" : "ไม่มีการเปลี่ยนแปลง";
+  reviewButton.disabled = productEditState.submitting || !hasChanges;
 }
 
 function renderProductEditProductSection() {
@@ -1506,7 +1520,7 @@ function renderProductEditSkuCard(sku, index) {
   summaryText.append(code, meta);
   const price = document.createElement("span");
   price.className = "product-edit-sku-price";
-  price.textContent = formatBaht(sku.salePrice);
+  price.textContent = formatProductPriceDisplay(sku.salePrice);
   summary.append(summaryText, price);
   if (productEditSkuChanged(sku, original)) {
     const marker = document.createElement("span");
@@ -1925,8 +1939,18 @@ function productEditChanges() {
     appendProductEditFieldChange(changes, `${labelPrefix} / รุ่น`, original.model, sku.model);
     appendProductEditFieldChange(changes, `${labelPrefix} / สี`, original.color, sku.color);
     appendProductEditFieldChange(changes, `${labelPrefix} / Size`, original.size, sku.size);
-    appendProductEditFieldChange(changes, `${labelPrefix} / ต้นทุน`, formatBaht(original.costPrice), formatBaht(sku.costPrice));
-    appendProductEditFieldChange(changes, `${labelPrefix} / ราคาขาย`, formatBaht(original.salePrice), formatBaht(sku.salePrice));
+    appendProductEditFieldChange(
+      changes,
+      `${labelPrefix} / ต้นทุน`,
+      formatProductPriceDisplay(original.costPrice),
+      formatProductPriceDisplay(sku.costPrice),
+    );
+    appendProductEditFieldChange(
+      changes,
+      `${labelPrefix} / ราคาขาย`,
+      formatProductPriceDisplay(original.salePrice),
+      formatProductPriceDisplay(sku.salePrice),
+    );
     appendProductEditFieldChange(
       changes,
       `${labelPrefix} / เพิ่มได้`,
@@ -2257,7 +2281,7 @@ function createSharedSingleSkuContent(product, sku, settings) {
   const metrics = document.createElement("div");
   metrics.className = "shared-product-metrics";
   metrics.append(
-    createSharedMetric("ราคาขาย", sku ? formatSharedCardPrice(sku.salePrice) : "-"),
+    createSharedMetric("ราคาขาย", sku ? formatProductPriceDisplay(sku.salePrice) : "-"),
     createSharedMetric("จำนวน", sku ? formatNumber(sku.onHandQty) : "0"),
     createSharedMetric("เพิ่มได้", sku ? formatNumber(sku.sourceableQtyEstimate) : "0"),
   );
@@ -2340,18 +2364,25 @@ function formatSkuPriceRange(skus) {
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   return min === max
-    ? formatSharedCardPrice(min)
-    : `${formatSharedCardPrice(min)} – ${formatSharedCardPrice(max)}`;
+    ? formatProductPriceDisplay(min)
+    : `${formatProductPriceDisplay(min)} – ${formatProductPriceDisplay(max)}`;
 }
 
-function formatSharedCardPrice(value) {
+function formatProductPriceDisplay(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) {
     return "-";
   }
 
+  if (!Number.isInteger(number)) {
+    return new Intl.NumberFormat("th-TH", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(number);
+  }
+
   return `${new Intl.NumberFormat("th-TH", {
-    maximumFractionDigits: 2,
+    maximumFractionDigits: 0,
   }).format(number)}.-`;
 }
 
@@ -2376,7 +2407,7 @@ function createSkuSummary(sku) {
   code.className = "sku-code";
   code.textContent = sku.skuCode || "-";
   const price = document.createElement("span");
-  price.textContent = formatBaht(sku.salePrice);
+  price.textContent = formatProductPriceDisplay(sku.salePrice);
   top.append(code, price);
 
   const variant = document.createElement("p");
