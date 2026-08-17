@@ -2158,53 +2158,189 @@ function updateProductDom() {
 }
 
 function createProductCard(product) {
-  const article = document.createElement("article");
-  article.className = "card product-card";
+  return createSharedProductCard(product, {
+    mode: "product",
+    onProductClick: () => openProductDetail(product),
+  });
+}
 
-  const button = document.createElement("button");
-  button.className = "product-card-button";
-  button.type = "button";
-  button.addEventListener("click", () => openProductDetail(product));
+function createSharedProductCard(product, options) {
+  const settings = options || {};
+  const article = document.createElement("article");
+  article.className = `card product-card shared-product-card ${settings.mode === "stock" ? "stock-card" : ""}`.trim();
+
+  const body = document.createElement(settings.onProductClick ? "button" : "div");
+  body.className = "product-card-button shared-product-body";
+  if (settings.onProductClick) {
+    body.type = "button";
+    body.addEventListener("click", settings.onProductClick);
+  }
 
   const header = document.createElement("div");
-  header.className = "product-card-header";
+  header.className = "shared-product-header";
+  header.append(createSharedProductImage(product), createSharedProductTitle(product));
 
+  const skus = Array.isArray(product && product.skus) ? product.skus : [];
+  const content = skus.length <= 1
+    ? createSharedSingleSkuContent(product, skus[0] || null, settings)
+    : createSharedMultiSkuContent(product, skus, settings);
+
+  body.append(header, content);
+  article.append(body);
+  return article;
+}
+
+function createSharedProductImage(product) {
+  const slot = document.createElement("div");
+  slot.className = "shared-product-image-slot";
+
+  if (product && product.hasImage && product.imageUrl) {
+    const image = document.createElement("img");
+    image.className = "shared-product-image";
+    image.src = product.imageUrl;
+    image.alt = product.productName || "รูปสินค้า";
+    image.loading = "lazy";
+    slot.append(image);
+    return slot;
+  }
+
+  const placeholder = document.createElement("span");
+  placeholder.textContent = "ไม่มีรูป";
+  slot.append(placeholder);
+  return slot;
+}
+
+function createSharedProductTitle(product) {
   const titleWrap = document.createElement("div");
-  const code = document.createElement("p");
-  code.className = "placeholder-text";
-  code.textContent = product.productCode || "";
-  const title = document.createElement("h2");
-  title.textContent = product.productName || "ไม่ระบุชื่อสินค้า";
-  const category = document.createElement("p");
-  category.className = "placeholder-text";
-  category.textContent = product.category || "ไม่ระบุหมวดหมู่";
-  if (product.productCode) {
+  titleWrap.className = "shared-product-title";
+
+  if (product && product.productCode) {
+    const code = document.createElement("p");
+    code.className = "shared-product-code";
+    code.textContent = product.productCode;
     titleWrap.append(code);
   }
-  titleWrap.append(title, category);
 
-  const status = document.createElement("span");
-  status.className = "status-pill";
-  status.textContent = product.status || "-";
-  header.append(titleWrap, status);
+  const title = document.createElement("h2");
+  title.className = "shared-product-name";
+  title.textContent = product && product.productName ? product.productName : "ไม่ระบุชื่อสินค้า";
+  titleWrap.append(title);
+  return titleWrap;
+}
 
-  const summary = document.createElement("div");
-  summary.className = "product-meta-grid";
-  summary.append(
-    createMetric("SKU", product.skuCount || 0),
-    createMetric("สถานะ", product.status || "-"),
+function createSharedSingleSkuContent(product, sku, settings) {
+  const content = document.createElement("div");
+  content.className = "shared-product-content";
+
+  if (sku) {
+    const variant = document.createElement("p");
+    variant.className = "placeholder-text shared-product-variant";
+    variant.textContent = formatVariantText(sku) || sku.skuCode || "ไม่ระบุรายละเอียด SKU";
+    content.append(variant);
+  }
+
+  const metrics = document.createElement("div");
+  metrics.className = "shared-product-metrics";
+  metrics.append(
+    createSharedMetric("ราคาขาย", sku ? formatBaht(sku.salePrice) : "-"),
+    createSharedMetric("จำนวน", sku ? formatNumber(sku.onHandQty) : "0"),
+    createSharedMetric("เพิ่มได้", sku ? formatNumber(sku.sourceableQtyEstimate) : "0"),
   );
+  content.append(metrics);
 
-  const skuList = document.createElement("div");
-  skuList.className = "sku-list";
-  const skus = Array.isArray(product.skus) ? product.skus : [];
+  return content;
+}
+
+function createSharedMultiSkuContent(product, skus, settings) {
+  const content = document.createElement("div");
+  content.className = "shared-product-content";
+
+  const price = document.createElement("p");
+  price.className = "shared-product-price";
+  price.textContent = `ราคาขาย ${formatSkuPriceRange(skus)}`;
+  content.append(price);
+
+  const table = document.createElement("div");
+  table.className = "shared-product-size-table";
+  table.append(createSharedSkuHeader(settings.mode));
   skus.forEach((sku) => {
-    skuList.append(createSkuSummary(sku));
+    table.append(createSharedSkuRow(product, sku, settings));
   });
+  content.append(table);
+  return content;
+}
 
-  button.append(header, summary, skuList);
-  article.append(button);
-  return article;
+function createSharedMetric(label, value) {
+  const item = document.createElement("div");
+  item.className = "shared-product-metric";
+  const strong = document.createElement("strong");
+  strong.textContent = value;
+  const span = document.createElement("span");
+  span.textContent = label;
+  item.append(strong, span);
+  return item;
+}
+
+function createSharedSkuHeader(mode) {
+  const row = document.createElement("div");
+  row.className = `shared-product-size-row shared-product-size-head ${mode === "stock" ? "has-action" : ""}`.trim();
+  ["ไซซ์", "จำนวน", "เพิ่มได้"].forEach((label) => {
+    const cell = document.createElement("span");
+    cell.textContent = label;
+    row.append(cell);
+  });
+  if (mode === "stock") {
+    row.append(document.createElement("span"));
+  }
+  return row;
+}
+
+function createSharedSkuRow(product, sku, settings) {
+  const isStock = settings.mode === "stock" && typeof settings.onSkuClick === "function";
+  const row = document.createElement(isStock ? "button" : "div");
+  row.className = `shared-product-size-row ${isStock ? "is-clickable has-action" : ""}`.trim();
+  if (isStock) {
+    row.type = "button";
+    row.addEventListener("click", () => settings.onSkuClick(product, sku));
+  }
+
+  const size = document.createElement("strong");
+  size.textContent = sharedSkuDisplayName(sku);
+  const onHand = document.createElement("span");
+  onHand.textContent = formatNumber(sku.onHandQty);
+  const sourceable = document.createElement("span");
+  sourceable.textContent = formatNumber(sku.sourceableQtyEstimate);
+  row.append(size, onHand, sourceable);
+
+  if (isStock) {
+    const arrow = document.createElement("span");
+    arrow.className = "shared-product-row-arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = ">";
+    row.append(arrow);
+  }
+
+  return row;
+}
+
+function sharedSkuDisplayName(sku) {
+  return (sku && sku.size) ||
+    [sku && sku.model, sku && sku.color].filter(Boolean).join(" / ") ||
+    (sku && sku.skuCode) ||
+    "SKU";
+}
+
+function formatSkuPriceRange(skus) {
+  const prices = (Array.isArray(skus) ? skus : [])
+    .map((sku) => Number(sku.salePrice))
+    .filter((value) => Number.isFinite(value));
+  if (prices.length === 0) {
+    return "-";
+  }
+
+  const min = Math.min(...prices);
+  const max = Math.max(...prices);
+  return min === max ? formatBaht(min) : `${formatBaht(min)} - ${formatBaht(max)}`;
 }
 
 function createMetric(label, value) {
@@ -4523,14 +4659,14 @@ async function loadStock(options) {
 
   try {
     const token = requireSessionToken();
-    const action = stockState.query.trim() ? "searchStock" : "listStock";
+    const action = stockState.query.trim() ? "searchProducts" : "listProducts";
     const payload = {
       sessionToken: token,
       page: stockState.page,
       pageSize: stockState.pageSize,
     };
 
-    if (action === "searchStock") {
+    if (action === "searchProducts") {
       payload.query = stockState.query.trim();
     }
 
@@ -4542,7 +4678,7 @@ async function loadStock(options) {
     }
 
     const nextItems = Array.isArray(data.items) ? data.items : [];
-    stockState.items = reset ? nextItems : appendUniqueStockItems(stockState.items, nextItems);
+    stockState.items = reset ? nextItems : appendUniqueProducts(stockState.items, nextItems);
     stockState.hasMore = !!data.hasMore;
   } catch (error) {
     if (handleProductAuthFailure(error)) {
@@ -4570,8 +4706,8 @@ function updateStockDom() {
   stockDom.status.dataset.type = "info";
 
   clearElement(stockDom.list);
-  stockState.items.forEach((item) => {
-    stockDom.list.append(createStockCard(item));
+  stockState.items.forEach((product) => {
+    stockDom.list.append(createStockCard(product));
   });
 
   if (stockState.loading && stockState.items.length === 0) {
@@ -4597,45 +4733,28 @@ function updateStockDom() {
   stockDom.loadMoreButton.disabled = stockState.loading;
 }
 
-function createStockCard(item) {
-  const article = document.createElement("article");
-  article.className = "card product-card stock-card";
+function createStockCard(product) {
+  const skus = Array.isArray(product && product.skus) ? product.skus : [];
+  return createSharedProductCard(product, {
+    mode: "stock",
+    onSkuClick: (selectedProduct, sku) => openStockDetail(stockDetailItemFromProductSku(selectedProduct, sku)),
+    onProductClick: skus.length === 1
+      ? () => openStockDetail(stockDetailItemFromProductSku(product, skus[0]))
+      : null,
+  });
+}
 
-  const button = document.createElement("button");
-  button.className = "product-card-button stock-card-button";
-  button.type = "button";
-  button.addEventListener("click", () => openStockDetail(item));
-
-  const header = document.createElement("div");
-  header.className = "product-card-header";
-
-  const titleWrap = document.createElement("div");
-  const title = document.createElement("h2");
-  title.textContent = item.skuCode || "-";
-  const productName = document.createElement("p");
-  productName.className = "placeholder-text";
-  productName.textContent = item.productName || "ไม่ระบุชื่อสินค้า";
-  titleWrap.append(title, productName);
-
-  const status = document.createElement("span");
-  status.className = "status-pill";
-  status.textContent = item.status || "-";
-  header.append(titleWrap, status);
-
-  const variant = document.createElement("p");
-  variant.className = "placeholder-text";
-  variant.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
-
-  const quantities = document.createElement("div");
-  quantities.className = "quantity-row";
-  quantities.append(
-    createQuantityChip("Stock", item.onHandQty),
-    createQuantityChip("หาเพิ่มได้", item.sourceableQtyEstimate),
-  );
-
-  button.append(header, variant, quantities);
-  article.append(button);
-  return article;
+function stockDetailItemFromProductSku(product, sku) {
+  return {
+    skuCode: sku && sku.skuCode ? sku.skuCode : "",
+    productName: product && product.productName ? product.productName : "",
+    model: sku && sku.model ? sku.model : "",
+    color: sku && sku.color ? sku.color : "",
+    size: sku && sku.size ? sku.size : "",
+    status: product && product.status ? product.status : "",
+    onHandQty: sku ? sku.onHandQty : 0,
+    sourceableQtyEstimate: sku ? sku.sourceableQtyEstimate : 0,
+  };
 }
 
 function openStockDetail(item) {
@@ -5048,7 +5167,7 @@ async function refreshStockAfterMutation(skuCode) {
 }
 
 async function fetchStockRefreshSnapshot(token, query, pageSize) {
-  const action = query ? "searchStock" : "listStock";
+  const action = query ? "searchProducts" : "listProducts";
   const payload = {
     sessionToken: token,
     page: 1,
@@ -5069,7 +5188,17 @@ async function fetchStockRefreshSnapshot(token, query, pageSize) {
 
 function findStockItemBySkuCode(items, skuCode) {
   const normalizedSkuCode = normalizeSkuCodeForUi(skuCode);
-  return (Array.isArray(items) ? items : []).find((item) => normalizeSkuCodeForUi(item.skuCode) === normalizedSkuCode) || null;
+  const products = Array.isArray(items) ? items : [];
+
+  for (const product of products) {
+    const skus = Array.isArray(product && product.skus) ? product.skus : [];
+    const sku = skus.find((candidate) => normalizeSkuCodeForUi(candidate.skuCode) === normalizedSkuCode);
+    if (sku) {
+      return stockDetailItemFromProductSku(product, sku);
+    }
+  }
+
+  return null;
 }
 
 function validateStockMutationForm() {
