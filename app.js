@@ -3878,45 +3878,107 @@ function renderShipmentSkuPicker() {
   return card;
 }
 
-function renderShipmentSkuPickerItem(item, existingSkuCodes) {
-  const normalizedSkuCode = normalizeSkuCodeForUi(item.skuCode);
+function renderShipmentSkuPickerItem(product, existingSkuCodes) {
+  const card = document.createElement("article");
+  card.className = "shipment-picker-product-card";
+
+  const header = document.createElement("div");
+  header.className = "shipment-picker-product-header";
+  header.append(createShipmentPickerProductImage(product), createShipmentPickerProductTitle(product));
+  card.append(header);
+
+  const skuList = document.createElement("div");
+  skuList.className = "shipment-picker-sku-list";
+  const skus = Array.isArray(product && product.skus) ? product.skus : [];
+  skus.forEach((sku) => {
+    skuList.append(renderShipmentSkuPickerSkuRow(product, sku, existingSkuCodes));
+  });
+  card.append(skuList);
+  return card;
+}
+
+function createShipmentPickerProductImage(product) {
+  const slot = document.createElement("div");
+  slot.className = "shipment-picker-image-slot";
+
+  if (product && product.hasImage && product.imageUrl) {
+    const image = document.createElement("img");
+    image.src = product.imageUrl;
+    image.alt = product.productName || "รูปสินค้า";
+    image.loading = "lazy";
+    slot.append(image);
+    return slot;
+  }
+
+  const placeholder = document.createElement("span");
+  placeholder.textContent = "ไม่มีรูป";
+  slot.append(placeholder);
+  return slot;
+}
+
+function createShipmentPickerProductTitle(product) {
+  const titleWrap = document.createElement("div");
+  titleWrap.className = "shipment-picker-product-title";
+
+  if (product && product.productCode) {
+    const code = document.createElement("p");
+    code.className = "shipment-picker-product-code";
+    code.textContent = product.productCode;
+    titleWrap.append(code);
+  }
+
+  const name = document.createElement("h4");
+  name.textContent = product && product.productName ? product.productName : "ไม่ระบุชื่อสินค้า";
+  titleWrap.append(name);
+  return titleWrap;
+}
+
+function renderShipmentSkuPickerSkuRow(product, sku, existingSkuCodes) {
+  const normalizedSkuCode = normalizeSkuCodeForUi(sku.skuCode);
   const alreadyAdded = existingSkuCodes.has(normalizedSkuCode);
   const selected = !!shipmentCreateState.picker.selectedItems[normalizedSkuCode];
   const row = document.createElement("label");
-  row.className = alreadyAdded ? "shipment-picker-row is-disabled" : "shipment-picker-row";
+  row.className = `shipment-picker-sku-row ${alreadyAdded ? "is-disabled" : ""} ${selected ? "is-selected" : ""}`.trim();
 
   const checkbox = document.createElement("input");
   checkbox.type = "checkbox";
   checkbox.checked = selected || alreadyAdded;
   checkbox.disabled = alreadyAdded;
   checkbox.addEventListener("change", (event) => {
-    toggleShipmentSkuPickerSelection(item, event.target.checked);
+    toggleShipmentSkuPickerSelection(product, sku, event.target.checked);
   });
 
   const body = document.createElement("div");
-  body.className = "shipment-picker-row-body";
-  const codeLine = document.createElement("div");
-  codeLine.className = "shipment-picker-code-line";
-  const code = document.createElement("strong");
-  code.textContent = normalizedSkuCode || "-";
-  const flag = document.createElement("span");
-  flag.className = "status-pill";
-  flag.textContent = alreadyAdded ? "เพิ่มแล้ว" : item.status || "เลือกได้";
-  codeLine.append(code, flag);
+  body.className = "shipment-picker-sku-body";
+  const top = document.createElement("div");
+  top.className = "shipment-picker-sku-top";
+  const variant = document.createElement("strong");
+  variant.textContent = shipmentPickerSkuVariantLabel(sku);
+  top.append(variant);
 
-  const name = document.createElement("p");
-  name.className = "shipment-picker-name";
-  name.textContent = item.productName || "ไม่ระบุชื่อสินค้า";
-  const meta = document.createElement("p");
-  meta.className = "placeholder-text shipment-picker-meta";
-  meta.textContent = formatVariantText(item) || "ไม่ระบุรายละเอียด SKU";
+  if (alreadyAdded) {
+    const flag = document.createElement("span");
+    flag.textContent = "เพิ่มแล้ว";
+    top.append(flag);
+  }
+
+  const code = document.createElement("p");
+  code.className = "placeholder-text shipment-picker-sku-code";
+  code.textContent = normalizedSkuCode || "-";
   const stock = document.createElement("p");
   stock.className = "placeholder-text shipment-picker-stock";
-  stock.textContent = `Stock ปัจจุบัน: ${formatOptionalNumber(item.onHandQty)}`;
-  body.append(codeLine, name, meta, stock);
+  stock.textContent = `Stock ${formatOptionalNumber(sku.onHandQty)}`;
+  body.append(top, code, stock);
 
   row.append(checkbox, body);
   return row;
+}
+
+function shipmentPickerSkuVariantLabel(sku) {
+  return (sku && sku.size) ||
+    [sku && sku.model, sku && sku.color].filter(Boolean).join(" / ") ||
+    (sku && sku.skuCode) ||
+    "SKU";
 }
 
 function updateShipmentSkuPickerDom() {
@@ -3996,14 +4058,14 @@ async function loadShipmentSkuPickerItems({ reset }) {
   updateShipmentSkuPickerDom();
 
   try {
-    const action = picker.query.trim() ? "searchStock" : "listStock";
+    const action = picker.query.trim() ? "searchProducts" : "listProducts";
     const payload = {
       sessionToken: requireSessionToken(),
       page: picker.page,
       pageSize: picker.pageSize,
     };
 
-    if (action === "searchStock") {
+    if (action === "searchProducts") {
       payload.query = picker.query.trim();
     }
 
@@ -4017,7 +4079,7 @@ async function loadShipmentSkuPickerItems({ reset }) {
     const nextItems = Array.isArray(data.items) ? data.items : [];
     shipmentCreateState.picker.items = reset
       ? nextItems
-      : appendUniqueStockItems(shipmentCreateState.picker.items, nextItems);
+      : appendUniqueProducts(shipmentCreateState.picker.items, nextItems);
     shipmentCreateState.picker.hasMore = !!data.hasMore;
   } catch (error) {
     if (handleProductAuthFailure(error)) {
@@ -4045,14 +4107,14 @@ function loadMoreShipmentSkuPickerItems() {
   loadShipmentSkuPickerItems({ reset: false });
 }
 
-function toggleShipmentSkuPickerSelection(item, shouldSelect) {
-  const normalizedSkuCode = normalizeSkuCodeForUi(item.skuCode);
+function toggleShipmentSkuPickerSelection(product, sku, shouldSelect) {
+  const normalizedSkuCode = normalizeSkuCodeForUi(sku.skuCode);
   if (!normalizedSkuCode || getShipmentCreateSkuCodeSet().has(normalizedSkuCode)) {
     return;
   }
 
   if (shouldSelect) {
-    shipmentCreateState.picker.selectedItems[normalizedSkuCode] = createShipmentItemFormFromStockItem(item);
+    shipmentCreateState.picker.selectedItems[normalizedSkuCode] = createShipmentItemFormFromProductSku(product, sku);
   } else {
     delete shipmentCreateState.picker.selectedItems[normalizedSkuCode];
   }
@@ -4393,6 +4455,18 @@ function createShipmentItemFormFromStockItem(item) {
     color: item.color || "",
     size: item.size || "",
     onHandQty: item.onHandQty,
+  };
+}
+
+function createShipmentItemFormFromProductSku(product, sku) {
+  return {
+    skuCode: normalizeSkuCodeForUi(sku.skuCode),
+    quantity: "",
+    productName: product && product.productName ? product.productName : "",
+    model: sku.model || "",
+    color: sku.color || "",
+    size: sku.size || "",
+    onHandQty: sku.onHandQty,
   };
 }
 

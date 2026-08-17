@@ -1198,6 +1198,139 @@ div.shared-product-body {
   font-weight: 700;
 }
 
+.shipment-picker-product-card {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.shipment-picker-product-header {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
+}
+
+.shipment-picker-image-slot {
+  display: grid;
+  width: 54px;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid #dfe6ee;
+  border-radius: 8px;
+  background: #f7f9fb;
+  color: #7a8a99;
+  font-size: 10px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.shipment-picker-image-slot img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shipment-picker-product-title {
+  min-width: 0;
+}
+
+.shipment-picker-product-code {
+  margin: 0 0 3px;
+  color: #236c87;
+  font-size: 11px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.shipment-picker-product-title h4 {
+  margin: 0;
+  color: #17202a;
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.shipment-picker-sku-list {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: #f3f6f9;
+}
+
+.shipment-picker-sku-row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px 0;
+  border-top: 1px solid #e1e8ef;
+  cursor: pointer;
+}
+
+.shipment-picker-sku-row:first-child {
+  border-top: 0;
+}
+
+.shipment-picker-sku-row.is-selected {
+  background: #eaf5f1;
+}
+
+.shipment-picker-sku-row.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+
+.shipment-picker-sku-row input {
+  width: 20px;
+  height: 20px;
+  margin: 2px 0 0;
+}
+
+.shipment-picker-sku-body {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.shipment-picker-sku-top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shipment-picker-sku-top strong {
+  color: #17202a;
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.shipment-picker-sku-top span {
+  flex: 0 0 auto;
+  color: #11694f;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.shipment-picker-sku-code,
+.shipment-picker-stock {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
 .shipment-picker-row {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
